@@ -83,7 +83,7 @@ export class PlayfulBot<GS extends GameState> {
     `,
     };
 
-    const gameResponse = await toPromise(execute(this.link, gameQuery));
+    let gameResponse = await toPromise(execute(this.link, gameQuery));
 
     const gameID = gameResponse?.data?.game.id;
     if (!gameID) {
@@ -109,7 +109,18 @@ export class PlayfulBot<GS extends GameState> {
     }
     
     for await (const patch of patches) {
-      jsonpatch.applyPatch(gameState, patch.data.gamePatch.patch, false, true);
+      console.log(`Game version ${gameResponse.data.game.version}`)
+      console.log(JSON.stringify(patch, null, 2));
+      if (patch.data.gamePatch.version < gameResponse.data.game.version + 1) {
+        continue;
+      } else if (patch.data.gamePatch.version > gameResponse.data.game.version + 1) {
+        console.log('Game state does not match last received patch. Fetching game again.')
+        gameResponse = await toPromise(execute(this.link, gameQuery));
+        gameState = gameResponse.data.game.gameState;
+      } else {
+        jsonpatch.applyPatch(gameState, patch.data.gamePatch.patch, false, true);
+        gameResponse.data.game.version = patch.data.gamePatch.version
+      }
       if (gameState.players[this.playerNumber].playing) {
         yield gameState;
       }
