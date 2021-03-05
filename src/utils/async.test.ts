@@ -11,7 +11,7 @@ test('asyncStream returns every value', async () => {
   for await (const val of out()) {
     result.push(val)
   }
-  await expect(result).toEqual(expected);
+  expect(result).toEqual(expected);
 });
 
 test('asyncStream throws when reject is used', async () => {
@@ -29,5 +29,5 @@ test('asyncStream throws when reject is used', async () => {
     }
   }
   await expect(pull()).rejects.toThrowError(error);
-  await expect(result).toEqual(expected);
+  expect(result).toEqual(expected);
 });

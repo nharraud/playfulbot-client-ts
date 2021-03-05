@@ -5,12 +5,11 @@ import { toPromise } from '@apollo/client/link/utils';
 import { WebSocketLink } from "@apollo/client/link/ws";
 import ws from 'ws';
 
-import jwt, { JsonWebTokenError } from 'jsonwebtoken';
+import jwt from 'jsonwebtoken';
 
-import * as jsonpatch from 'fast-json-patch';
-
-import { GameState, GameAction, BotAI } from "./types";
+import { GameState, BotAI, PlayerAssignment } from "./types";
 import { observableToAsyncGenerator } from './utils/async';
+import { PlayedGame } from "./utils/game";
 
 
 const GRAPHQL_ENDPOINT = "ws://localhost:4000/graphql";
@@ -18,11 +17,15 @@ const GRAPHQL_ENDPOINT = "ws://localhost:4000/graphql";
 export class PlayfulBot<GS extends GameState> {
   client: SubscriptionClient;
   link: WebSocketLink;
-  gameID: string;
-  playerNumber: number;
   ai: BotAI<GS>;
+  playerID: string;
+  gameScheduleID: string;
+  counter: number;
+  time: number;
 
   constructor(token: string, botAI: BotAI<GS>) {
+    this.counter = 0;
+    this.time = 0;
     this.client = new SubscriptionClient(GRAPHQL_ENDPOINT, {
       reconnect: true,
       lazy: true,
@@ -37,93 +40,129 @@ export class PlayfulBot<GS extends GameState> {
 
     this.link = new WebSocketLink(this.client);
 
-    const { playerNumber, game } = jwt.decode(token, {json: true});
-    this.playerNumber = playerNumber;
-    this.gameID = game;
+    const { playerID, gameScheduleID } = jwt.decode(token, {json: true});
+    this.playerID = playerID;
+    this.gameScheduleID = gameScheduleID;
 
     this.ai = botAI;
   }
 
 
-  async run() {
-    for await (const gameState of this.gameStates()) {
-      const action = this.ai.run(gameState);
-      await this.play(action.name, action.data);
+  async run(restart: boolean) {
+    for await (const game of this.games()) {
+      for await (const gameState of game.gameStates()) {
+        const action = this.ai.run(gameState);
+        const result = await this.play(game, action.name, action.data);
+      }
+      if (restart) {
+        await this.createNewDebugGame()
+      }
     }
   }
 
-
-  async play(action: any, data: any) {
-    const playMutation = {
+  async createNewDebugGame() {
+    const NEW_DEBUG_GAME_MUTATION = {
       query: gql`
-        mutation Play($gameID: ID!, $player: Int!, $action: String!, $data: JSON!) {
-          play(gameID: $gameID, player: $player, action: $action, data: $data)
+        mutation CreateNewDebugGameForUser($userID: ID!) {
+          createNewDebugGameForUser(userID: $userID) {
+            id
+          }
         }
       `,
-      variables: {gameID: this.gameID, player: this.playerNumber, action: action, data: data},
+      variables: {userID: 'userID11'}
+    };
+    const now = Math.floor(new Date().getTime() / 1000);
+    if (this.time === now) {
+      this.counter += 1;
+    } else {
+      console.log(`create ${this.counter} games per second`)
+      this.time = now;
+      this.counter = 0;
+    }
+    return toPromise(execute(this.link, NEW_DEBUG_GAME_MUTATION));
+  }
+
+  async play(game: PlayedGame<GS>, action: any, data: any) {
+    const playMutation = {
+      query: gql`
+        mutation Play($gameID: ID!, $playerID: ID!, $action: String!, $data: JSON!) {
+          play(gameID: $gameID, playerID: $playerID, action: $action, data: $data)
+        }
+      `,
+      variables: {gameID: game.gameID, playerID: this.playerID, action: action, data: data},
     };
     
     return toPromise(execute(this.link, playMutation));
   }
 
-  async *gameStates(): AsyncGenerator<GS, void, unknown> {
-    console.log("running")
-    const gameQuery = {
-      query: gql`
-      query GetGame {
-        game {
-          id
-          players {
-            playerNumber, token
-          }
-          version
-          gameState
-          }
-      }
-    `,
-    };
 
-    let gameResponse = await toPromise(execute(this.link, gameQuery));
 
-    const gameID = gameResponse?.data?.game.id;
-    if (!gameID) {
-      throw new Error("Game could not be retrieved");
-    }
-    let gameState = gameResponse.data.game.gameState;
-    
-    const gamePatchSubscription = {
+
+  async *games(): AsyncGenerator<PlayedGame<GS>, void, unknown> {
+    const GAME_SCHEDULE_QUERY = {
       query: gql`
-        subscription onGameChanges($gameID: ID!) {
-          gamePatch(gameID: $gameID) {
-            patch, version
+        query getGameSchedule($scheduleID: ID!) {
+          gameSchedule(scheduleID: $scheduleID) {
+            id
+            players {
+              id, token
+            }
+            game {
+              id
+              version,
+              assignments {
+                playerID, playerNumber
+              }
+              gameState
+            }
           }
         }
       `,
-      variables: {gameID: gameID},
+      variables: { scheduleID: this.gameScheduleID }
     };
 
-    const patches: any = observableToAsyncGenerator(execute(this.link, gamePatchSubscription))
+    const GAME_SCHEDULE_SUBSCRIPTION = {
+      query: gql`
+        subscription onGameScheduleChanges($scheduleID: ID!) {
+          gameScheduleChanges(scheduleID: $scheduleID) {
+            id
+            players {
+              id, token
+            }
+            game {
+              id
+              version,
+              assignments {
+                playerID, playerNumber
+              }
+              gameState
+            }
+          }
+        }
+      `,
+      variables: { scheduleID: this.gameScheduleID }
+    };
 
-    if (gameState.players[this.playerNumber].playing) {
-      yield gameState;
+
+    const scheduledGames: any = observableToAsyncGenerator(execute(this.link, GAME_SCHEDULE_SUBSCRIPTION))
+
+    let gameScheduleResponse = await toPromise(execute(this.link, GAME_SCHEDULE_QUERY));
+
+    if (!gameScheduleResponse?.data?.gameSchedule?.id) {
+      console.log(JSON.stringify(gameScheduleResponse, null, 2))
+      throw new Error("Game Schedule could not be retrieved");
     }
-    
-    for await (const patch of patches) {
-      console.log(`Game version ${gameResponse.data.game.version}`)
-      console.log(JSON.stringify(patch, null, 2));
-      if (patch.data.gamePatch.version < gameResponse.data.game.version + 1) {
+    const assignments: PlayerAssignment[] = gameScheduleResponse.data.gameSchedule.game.assignments;
+    const playerNumber = assignments.find((assignment) => assignment.playerID === this.playerID).playerNumber;
+    yield new PlayedGame<GS>(gameScheduleResponse.data.gameSchedule.game.id, playerNumber, this.link)
+
+    for await (const scheduledGame of scheduledGames) {
+      if (gameScheduleResponse.data.gameSchedule.game.id === scheduledGame.data.gameScheduleChanges.game.id) {
         continue;
-      } else if (patch.data.gamePatch.version > gameResponse.data.game.version + 1) {
-        console.log('Game state does not match last received patch. Fetching game again.')
-        gameResponse = await toPromise(execute(this.link, gameQuery));
-        gameState = gameResponse.data.game.gameState;
-      } else {
-        jsonpatch.applyPatch(gameState, patch.data.gamePatch.patch, false, true);
-        gameResponse.data.game.version = patch.data.gamePatch.version
       }
-      if (gameState.players[this.playerNumber].playing) {
-        yield gameState;
-      }
+      yield new PlayedGame<GS>(scheduledGame.data.gameScheduleChanges.game.id, playerNumber, this.link)
     }
+
   }
+
 }

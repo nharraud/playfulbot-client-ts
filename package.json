@@ -6,7 +6,8 @@
   "scripts": {
     "test": "jest",
     "player1": "nodemon --inspect=9228 src/player1.ts",
-    "player2": "nodemon src/player2.ts"
+    "player2": "nodemon src/player2.ts",
+    "players": "node --require ts-node/register --require tsconfig-paths/register --inspect-brk=9228 src/index.ts"
   },
   "repository": {
     "type": "git",
