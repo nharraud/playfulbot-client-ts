@@ -1,6 +1,6 @@
 import { execute, gql, toPromise } from "@apollo/client/core";
 import { WebSocketLink } from "@apollo/client/link/ws";
-import { GameState } from "src/types";
+import { GameState, LiveGame, isGame, Game } from "src/types";
 import { observableToAsyncGenerator } from "./async";
 import * as jsonpatch from 'fast-json-patch';
 
@@ -32,46 +32,90 @@ export class PlayedGame<GS extends GameState> {
       variables: {gameID: this.gameID},
     };
     
+    // const GAME_PATCH_SUBSCRIPTION = {
+    //   query: gql`
+    //     subscription onGameChanges($gameID: ID!) {
+    //       gamePatch(gameID: $gameID) {
+    //         patch, version
+    //       }
+    //     }
+    //   `,
+    //   variables: {gameID: this.gameID},
+    // };
+
     const GAME_PATCH_SUBSCRIPTION = {
       query: gql`
         subscription onGameChanges($gameID: ID!) {
           gamePatch(gameID: $gameID) {
-            patch, version
+            ... on GamePatch {
+              patch, version
+            }
+
+            ... on Game {
+              id
+              assignments {
+                playerID, playerNumber
+              }
+              version
+              gameState
+            }
           }
         }
       `,
       variables: {gameID: this.gameID},
     };
 
-    const patches: any = observableToAsyncGenerator(execute(this.link, GAME_PATCH_SUBSCRIPTION))
+    const patches = observableToAsyncGenerator<any>(execute(this.link, GAME_PATCH_SUBSCRIPTION))
 
-    let gameResponse = await toPromise(execute(this.link, GAME_QUERY));
+    // let gameResponse = await toPromise(execute(this.link, GAME_QUERY));
 
-    if (!gameResponse?.data?.game.id) {
-      throw new Error("Game could not be retrieved");
-    }
-    let game = gameResponse.data.game;
+    // if (!gameResponse?.data?.game.id) {
+    //   throw new Error("Game could not be retrieved");
+    // }
+    // let game = gameResponse.data.game;
+    let game: Game<GS> = null;
 
-    if (game.gameState.players[this.playerNumber].playing) {
-      yield game.gameState;
-    }
+    // if (game.gameState.players[this.playerNumber].playing) {
+    //   yield game.gameState;
+    // }
 
-    for await (const patch of patches) {
-      if (patch.data.gamePatch.version < game.version + 1) {
+    let patch: {data: { gamePatch: LiveGame<GS> } };
+    for await (patch of patches) {
+      if (game === null && isGame(patch.data.gamePatch)) {
+        game = patch.data.gamePatch;
+      }
+      else if (patch.data.gamePatch.version < game.version + 1) {
+        console.log(`${this.playerNumber} - OLD VERSION RECEIVED ${patch.data.gamePatch.version}`);
         continue;
       } else if (patch.data.gamePatch.version > game.version + 1) {
         console.log('Game state does not match last received patch. Fetching game again.')
-        gameResponse = await toPromise(execute(this.link, GAME_QUERY));
+        console.log(`${this.playerNumber} - === OLD STATE ===`)
+        console.log(JSON.stringify(game, null, 2))
+        console.log('=== PATCH ===')
+        console.log(JSON.stringify(patch.data, null, 2))
+        let gameResponse = await toPromise(execute(this.link, GAME_QUERY));
         game = gameResponse.data.game;
+        console.log('=== NEW STATE ===')
+        console.log(JSON.stringify(game, null, 2))
+        const val = (await patches.next()).value;
+        console.log('=== NEXT PATCH ===')
+        console.log(JSON.stringify(val, null, 2))
       } else {
-        jsonpatch.applyPatch(game.gameState, patch.data.gamePatch.patch, false, true);
-        game.version = patch.data.gamePatch.version
+        if (isGame(patch.data.gamePatch)) {
+          game = patch.data.gamePatch;
+        } else {
+          jsonpatch.applyPatch(game.gameState, patch.data.gamePatch.patch as any, false, true);
+          game.version = patch.data.gamePatch.version
+        }
       }
+      // console.log(`${this.playerNumber} - VERSION: ${game.version} -  END: ${game.gameState.end}`);
       if (game.gameState.end) {
         break;
       }
       if (game.gameState.players[this.playerNumber].playing) {
-        yield game.gameState;
+        // console.log(`${this.playerNumber} - VERSION: ${game.version} - YIELD to player`);
+        yield game.gameState
+        // console.log(`${this.playerNumber} - VERSION: ${game.version} - YIELDED to player`);
       }
     }
   }

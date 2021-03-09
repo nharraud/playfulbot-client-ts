@@ -49,6 +49,9 @@ export class PlayfulBot<GS extends GameState> {
 
 
   async run(restart: boolean) {
+    if (restart) {
+      await this.createNewDebugGame()
+    }
     for await (const game of this.games()) {
       for await (const gameState of game.gameStates()) {
         const action = this.ai.run(gameState);
@@ -142,7 +145,6 @@ export class PlayfulBot<GS extends GameState> {
       `,
       variables: { scheduleID: this.gameScheduleID }
     };
-
 
     const scheduledGames: any = observableToAsyncGenerator(execute(this.link, GAME_SCHEDULE_SUBSCRIPTION))
 

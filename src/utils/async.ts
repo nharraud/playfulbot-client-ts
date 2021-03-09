@@ -55,7 +55,7 @@ export function asyncStream<T>() {
 }
 
 export function observableToAsyncGenerator<T>(observable: Observable<T>) {
-  const {push, reject, complete, out} = asyncStream();
+  const {push, reject, complete, out} = asyncStream<T>();
 
   const subscription = observable.subscribe({
     next(data: T) {
