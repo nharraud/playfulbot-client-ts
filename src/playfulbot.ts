@@ -11,9 +11,6 @@ import { GameState, BotAI, PlayerAssignment } from "./types";
 import { observableToAsyncGenerator } from './utils/async';
 import { PlayedGame } from "./utils/game";
 
-
-const GRAPHQL_ENDPOINT = "ws://localhost:4000/graphql";
-
 export class PlayfulBot<GS extends GameState> {
   client: SubscriptionClient;
   link: WebSocketLink;
@@ -23,10 +20,10 @@ export class PlayfulBot<GS extends GameState> {
   counter: number;
   time: number;
 
-  constructor(token: string, botAI: BotAI<GS>) {
+  constructor(token: string, botAI: BotAI<GS>, graphqlEndpoint: string) {
     this.counter = 0;
     this.time = 0;
-    this.client = new SubscriptionClient(GRAPHQL_ENDPOINT, {
+    this.client = new SubscriptionClient(graphqlEndpoint, {
       reconnect: true,
       lazy: true,
       connectionParams: async () => {
@@ -36,7 +33,7 @@ export class PlayfulBot<GS extends GameState> {
       },
     }, ws);
     this.client.onError((err) => console.log('onError', { err }));
-    this.client.onConnected((args) => console.log(`Success ${JSON.stringify(args)}`));
+    // this.client.onConnected((args) => console.log(`Success ${JSON.stringify(args)}`));
 
     this.link = new WebSocketLink(this.client);
 
@@ -54,7 +51,7 @@ export class PlayfulBot<GS extends GameState> {
     }
     for await (const game of this.games()) {
       for await (const gameState of game.gameStates()) {
-        const action = this.ai.run(gameState);
+        const action = this.ai.run(gameState, game.playerNumber);
         const result = await this.play(game, action.name, action.data);
       }
       if (restart) {
@@ -72,13 +69,14 @@ export class PlayfulBot<GS extends GameState> {
           }
         }
       `,
-      variables: {userID: 'userID11'}
+      // variables: {userID: '00000000-0000-0000-0000-000000000e11'}
+      variables: {userID: this.gameScheduleID}
     };
-    const now = Math.floor(new Date().getTime() / 1000);
+    const now = Math.floor(new Date().getTime() / 10000);
     if (this.time === now) {
       this.counter += 1;
     } else {
-      console.log(`create ${this.counter} games per second`)
+      console.log(`${this.gameScheduleID}: create ${this.counter} games per second`)
       this.time = now;
       this.counter = 0;
     }

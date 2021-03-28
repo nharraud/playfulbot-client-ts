@@ -47,5 +47,5 @@ export interface GameAction {
 }
 
 export interface BotAI<GS extends GameState> {
-  run(gameState: GS): GameAction;
+  run(gameState: GS, playerNumber: number): GameAction;
 }
