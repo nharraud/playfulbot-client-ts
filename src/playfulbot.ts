@@ -17,12 +17,8 @@ export class PlayfulBot<GS extends GameState> {
   ai: BotAI<GS>;
   playerID: string;
   gameScheduleID: string;
-  counter: number;
-  time: number;
 
   constructor(token: string, botAI: BotAI<GS>, graphqlEndpoint: string) {
-    this.counter = 0;
-    this.time = 0;
     this.client = new SubscriptionClient(graphqlEndpoint, {
       reconnect: true,
       lazy: true,
@@ -33,7 +29,6 @@ export class PlayfulBot<GS extends GameState> {
       },
     }, ws);
     this.client.onError((err) => console.log('onError', { err }));
-    // this.client.onConnected((args) => console.log(`Success ${JSON.stringify(args)}`));
 
     this.link = new WebSocketLink(this.client);
 
@@ -45,42 +40,14 @@ export class PlayfulBot<GS extends GameState> {
   }
 
 
-  async run(restart: boolean) {
-    if (restart) {
-      await this.createNewDebugGame()
-    }
+  async *run(): AsyncGenerator<void, void, unknown> {
     for await (const game of this.games()) {
       for await (const gameState of game.gameStates()) {
         const action = this.ai.run(gameState, game.playerNumber);
-        const result = await this.play(game, action.name, action.data);
+        await this.play(game, action.name, action.data);
       }
-      if (restart) {
-        await this.createNewDebugGame()
-      }
+      yield;
     }
-  }
-
-  async createNewDebugGame() {
-    const NEW_DEBUG_GAME_MUTATION = {
-      query: gql`
-        mutation CreateNewDebugGameForUser($userID: ID!) {
-          createNewDebugGameForUser(userID: $userID) {
-            id
-          }
-        }
-      `,
-      // variables: {userID: '00000000-0000-0000-0000-000000000e11'}
-      variables: {userID: this.gameScheduleID}
-    };
-    const now = Math.floor(new Date().getTime() / 10000);
-    if (this.time === now) {
-      this.counter += 1;
-    } else {
-      console.log(`${this.gameScheduleID}: create ${this.counter} games per second`)
-      this.time = now;
-      this.counter = 0;
-    }
-    return toPromise(execute(this.link, NEW_DEBUG_GAME_MUTATION));
   }
 
   async play(game: PlayedGame<GS>, action: any, data: any) {
@@ -95,9 +62,6 @@ export class PlayfulBot<GS extends GameState> {
     
     return toPromise(execute(this.link, playMutation));
   }
-
-
-
 
   async *games(): AsyncGenerator<PlayedGame<GS>, void, unknown> {
     const GAME_SCHEDULE_QUERY = {
