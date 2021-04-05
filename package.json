@@ -5,7 +5,9 @@
   "main": "src/index.ts",
   "scripts": {
     "test": "jest",
-    "benchmark": "node --require ts-node/register --require tsconfig-paths/register src/index.ts"
+    "benchmark": "node --require ts-node/register --require tsconfig-paths/register src/index.ts",
+    "grpc": "node --require ts-node/register --require tsconfig-paths/register src/grpc/client.ts",
+    "gen-grpc": "rm -rf ./src/grpc/proto/types && proto-loader-gen-types --longs=String --enums=String --defaults --oneofs --grpcLib=@grpc/grpc-js --outDir=src/grpc/proto/types src/grpc/proto/**/**/*.proto"
   },
   "repository": {
     "type": "git",
@@ -33,6 +35,8 @@
   },
   "dependencies": {
     "@apollo/client": "^3.3.13",
+    "@grpc/grpc-js": "^1.2.12",
+    "@grpc/proto-loader": "^0.6.0-pre17",
     "fast-json-patch": "^3.0.0-1",
     "graphql-tag": "^2.12.3",
     "jsonwebtoken": "^8.5.1",

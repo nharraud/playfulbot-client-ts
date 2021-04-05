@@ -1,4 +1,5 @@
 import { PlayfulBot } from "./playfulbot";
+import { PlayfulBotGrpc } from "./playfulbotGrpc";
 import { WallRaceAI } from "./wallrace/ai";
 import { WallRaceGameState } from "./wallrace/types";
 
@@ -18,20 +19,24 @@ async function *runDebugGame(userID: string, graphqlEndpoint: string): AsyncGene
   const scheduler = new GameScheduler(token1, graphqlEndpoint);
   await scheduler.createNewDebugGame();
   const ai1 = new WallRaceAI();
-  const bot1 = new PlayfulBot<WallRaceGameState>(token1, ai1, graphqlEndpoint);
+  // const bot1 = new PlayfulBot<WallRaceGameState>(token1, ai1, graphqlEndpoint);
+  const bot1 = new PlayfulBotGrpc<WallRaceGameState>(token1, ai1, graphqlEndpoint);
 
   const ai2 = new WallRaceAI();
-  const bot2 = new PlayfulBot<WallRaceGameState>(token2, ai2, graphqlEndpoint);
+  // const bot2 = new PlayfulBot<WallRaceGameState>(token2, ai2, graphqlEndpoint);
+  const bot2 = new PlayfulBotGrpc<WallRaceGameState>(token2, ai2, graphqlEndpoint);
 
 
-  const iterBot1 = bot1.run();
-  const iterBot2 = bot2.run();
+  // const iterBot1 = bot1.run();
+  // const iterBot2 = bot2.run();
+  const iterBot1 = await bot1.run();
+  const iterBot2 = await bot2.run();
 
   let timeSlot = Math.floor(new Date().getTime() / 10000);
   let counter = 0;
 
   while (true) {
-    await Promise.allSettled([
+    await Promise.all([
       iterBot1.next(),
       iterBot2.next(),
     ]);
@@ -70,7 +75,7 @@ async function benchmark(start: number, end: number, graphqlEndpoint: string) {
 }
 
 const START = parseInt(process.env['START']) || 0;
-const END = parseInt(process.env['END']) || 10;
+const END = parseInt(process.env['END']) || 1;
 
 let graphqlPort = 4000;
 if (process.env.GRAPHQL_PORT) {
