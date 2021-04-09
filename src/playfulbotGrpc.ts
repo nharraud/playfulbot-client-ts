@@ -19,18 +19,22 @@ export class PlayfulBotGrpc<GS extends GameState> {
   playerID: string;
   gameScheduleID: string;
   clientCache?: ClientInterfaces.playfulbot.v0.PlayfulBotClient;
+  endpoint: string;
+  token: string;
 
-  constructor(token: string, botAI: BotAI<GS>, graphqlEndpoint: string) {
+  constructor(endpoint: string, token: string, botAI: BotAI<GS>, graphqlEndpoint: string) {
     const { playerID, gameScheduleID } = jwt.decode(token, {json: true});
     this.playerID = playerID;
     this.gameScheduleID = gameScheduleID;
+    this.endpoint = endpoint;
+    this.token = token;
 
     this.ai = botAI;
   }
 
   async getClient(): Promise<ClientInterfaces.playfulbot.v0.PlayfulBotClient> {
     if (!this.clientCache) {
-      this.clientCache = await createClient('localhost:5000');
+      this.clientCache = await createClient(this.endpoint);
     }
     return this.clientCache;
   }
@@ -38,55 +42,63 @@ export class PlayfulBotGrpc<GS extends GameState> {
   async run() {
     const {push, reject, complete, out} = asyncStream<void>();
     const client = await this.getClient();
-    const scheduleCall = client.FollowGameSchedule({ scheduleId: this.gameScheduleID });
+
+    const metadata = new grpc.Metadata();
+    metadata.set('authorization', this.token);
+
+    async function getGameClient(endpoint: string) {
+      // return Promise.resolve(client);
+      return createClient(endpoint);
+    }
+    const scheduleCall = client.FollowGameSchedule({ scheduleId: this.gameScheduleID }, metadata);
 
     let opened = 0;
     let closed = 0;
     scheduleCall.on('data', (scheduleResponse: FollowGameScheduleResponse) => {
-      const gameCall = client.FollowGame();
+      getGameClient(this.endpoint).then((gameClient) => {
+        const gameCall = gameClient.FollowGame(metadata);
 
-      gameCall.on('error', (error) => {
-        scheduleCall.cancel();
-        console.log('errpr on gamecall')
-        reject(error);
-      });
-      gameCall.on('end', () => {
-        gameCall.end();
-      })
-
-      // // @ts-ignore
-      const playCall = client.PlayGame(new grpc.Metadata(), (error, result) => {
-        if (error) {
+        gameCall.on('error', (error) => {
+          scheduleCall.cancel();
+          console.log('errpr on gamecall')
           reject(error);
-        }
-      });
-
-      let gameState: GS = null;
-      let playerNumber: number = null;
-      gameCall.on('data', (gameResponse: FollowGameResponse) => {
-        if ('game' in gameResponse) {
-          gameState = JSON.parse(gameResponse.game.gameState);
-          const assignments = gameResponse.game.assignments;
-          playerNumber = assignments.find((assignment) => assignment.playerId === this.playerID).playerNumber;
-        } else {
-          jsonpatch.applyPatch(gameState, JSON.parse(gameResponse.patch.patch) as any, false, true);
-        }
-        if (gameState.end) {
+        });
+        gameCall.on('end', () => {
           gameCall.end();
-          playCall.end();
-          push();
-        } else {
-          if (gameState.players[playerNumber].playing) {
-            const action = this.ai.run(gameState, playerNumber);
-
-            const playMessage = { gameId: scheduleResponse.schedule.gameId, playerId: this.playerID, action: action.name, data: JSON.stringify(action.data) };
-
-            playCall.write(playMessage);
+        })
+        const playCall = gameClient.PlayGame(metadata, (error, result) => {
+          if (error) {
+            reject(error);
           }
-        }
-      });
+        });
 
-      gameCall.write({ gameId: scheduleResponse.schedule.gameId });
+        let gameState: GS = null;
+        let playerNumber: number = null;
+        gameCall.on('data', (gameResponse: FollowGameResponse) => {
+          if ('game' in gameResponse) {
+            gameState = JSON.parse(gameResponse.game.gameState);
+            const assignments = gameResponse.game.assignments;
+            playerNumber = assignments.find((assignment) => assignment.playerId === this.playerID).playerNumber;
+          } else {
+            jsonpatch.applyPatch(gameState, JSON.parse(gameResponse.patch.patch) as any, false, true);
+          }
+          if (gameState.end) {
+            gameCall.end();
+            playCall.end();
+            push();
+          } else {
+            if (gameState.players[playerNumber].playing) {
+              const action = this.ai.run(gameState, playerNumber);
+
+              const playMessage = { gameId: scheduleResponse.schedule.gameId, playerId: this.playerID, action: action.name, data: JSON.stringify(action.data) };
+
+              playCall.write(playMessage);
+            }
+          }
+        });
+
+        gameCall.write({ gameId: scheduleResponse.schedule.gameId });
+      });
     });
     scheduleCall.on('error', (error) => {
       console.log('error on scheduleCall');

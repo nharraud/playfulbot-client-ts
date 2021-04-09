@@ -9,7 +9,7 @@ import { GameScheduler } from './GameScheduler';
 import { exit } from "process";
 
 
-async function *runDebugGame(userID: string, graphqlEndpoint: string): AsyncGenerator<number, void, unknown> {
+async function *runDebugGame(userID: string, graphqlEndpoint: string, grpcEndpoint: string): AsyncGenerator<number, void, unknown> {
 
   const SECRET_KEY = 'secret!';
   const token1 = jwt.sign({ playerID: 'player_0', gameScheduleID: userID }, SECRET_KEY);
@@ -20,11 +20,11 @@ async function *runDebugGame(userID: string, graphqlEndpoint: string): AsyncGene
   await scheduler.createNewDebugGame();
   const ai1 = new WallRaceAI();
   // const bot1 = new PlayfulBot<WallRaceGameState>(token1, ai1, graphqlEndpoint);
-  const bot1 = new PlayfulBotGrpc<WallRaceGameState>(token1, ai1, graphqlEndpoint);
+  const bot1 = new PlayfulBotGrpc<WallRaceGameState>(grpcEndpoint, token1, ai1, graphqlEndpoint);
 
   const ai2 = new WallRaceAI();
   // const bot2 = new PlayfulBot<WallRaceGameState>(token2, ai2, graphqlEndpoint);
-  const bot2 = new PlayfulBotGrpc<WallRaceGameState>(token2, ai2, graphqlEndpoint);
+  const bot2 = new PlayfulBotGrpc<WallRaceGameState>(grpcEndpoint, token2, ai2, graphqlEndpoint);
 
 
   // const iterBot1 = bot1.run();
@@ -53,7 +53,7 @@ async function *runDebugGame(userID: string, graphqlEndpoint: string): AsyncGene
   }
 }
 
-async function benchmark(start: number, end: number, graphqlEndpoint: string) {
+async function benchmark(start: number, end: number, graphqlEndpoint: string, grpcEndpoint: string) {
   const playedGames = [];
   for (let idx = start; idx < end; idx += 1) {
     let userNB = idx.toString(16);
@@ -61,7 +61,7 @@ async function benchmark(start: number, end: number, graphqlEndpoint: string) {
       userNB = `0${userNB}`;
     }
   
-    const iterator = runDebugGame(`00000000-0000-0000-0000-000000000e${userNB}`, graphqlEndpoint)
+    const iterator = runDebugGame(`00000000-0000-0000-0000-000000000e${userNB}`, graphqlEndpoint, grpcEndpoint)
     playedGames.push(iterator);
   }
 
@@ -82,14 +82,20 @@ if (process.env.GRAPHQL_PORT) {
   graphqlPort = parseInt(process.env.GRAPHQL_PORT, 10);
 }
 
-let graphqlHost = 'localhost';
-if (process.env.GRAPHQL_HOST) {
-  graphqlHost = process.env.GRAPHQL_HOST;
+let grpcPort = 5000;
+if (process.env.GRPC_PORT) {
+  grpcPort = parseInt(process.env.GRPC_PORT, 10);
 }
 
-const GRAPHQL_ENDPOINT = `ws://${graphqlHost}:${graphqlPort}/graphql`;
+let host = 'localhost';
+if (process.env.HOST) {
+  host = process.env.HOST;
+}
 
-benchmark(START, END, GRAPHQL_ENDPOINT).catch((reason) => {
+const GRAPHQL_ENDPOINT = `ws://${host}:${graphqlPort}/graphql`;
+const GRPC_ENDPOINT = `${host}:${grpcPort}`;
+
+benchmark(START, END, GRAPHQL_ENDPOINT, GRPC_ENDPOINT).catch((reason) => {
   console.log(reason);
   exit();
 })
