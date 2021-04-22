@@ -9,15 +9,13 @@ import { createClient } from './grpc/client';
 import { ClientInterfaces } from './grpc/proto/types/playfulbot_v0';
 import { FollowGameRequest } from './grpc/proto/types/playfulbot/v0/FollowGameRequest';
 import { FollowGameResponse, FollowGameResponse__Output } from './grpc/proto/types/playfulbot/v0/FollowGameResponse';
-import { FollowGameScheduleResponse } from './grpc/proto/types/playfulbot/v0/FollowGameScheduleResponse';
-import { PlayerAssignment } from './grpc/proto/types/playfulbot/v0/PlayerAssignment';
 import { PlayGameRequest } from './grpc/proto/types/playfulbot/v0/PlayGameRequest';
 import { PlayGameResponse__Output } from './grpc/proto/types/playfulbot/v0/PlayGameResponse';
+import { FollowPlayerGamesResponse } from './grpc/proto/types/playfulbot/v0/FollowPlayerGamesResponse';
 
 export class PlayfulBotGrpc<GS extends GameState> {
   ai: BotAI<GS>;
   playerID: string;
-  gameScheduleID: string;
   clientCache?: ClientInterfaces.playfulbot.v0.PlayfulBotClient;
   endpoint: string;
   token: string;
@@ -25,7 +23,6 @@ export class PlayfulBotGrpc<GS extends GameState> {
   constructor(endpoint: string, token: string, botAI: BotAI<GS>, graphqlEndpoint: string) {
     const { playerID, gameScheduleID } = jwt.decode(token, {json: true});
     this.playerID = playerID;
-    this.gameScheduleID = gameScheduleID;
     this.endpoint = endpoint;
     this.token = token;
 
@@ -47,29 +44,54 @@ export class PlayfulBotGrpc<GS extends GameState> {
     metadata.set('authorization', this.token);
 
     async function getGameClient(endpoint: string) {
-      // return Promise.resolve(client);
-      return createClient(endpoint);
+      return Promise.resolve(client);
+      // return createClient(endpoint);
     }
-    const scheduleCall = client.FollowGameSchedule({ scheduleId: this.gameScheduleID }, metadata);
-
-    let opened = 0;
-    let closed = 0;
-    scheduleCall.on('data', (scheduleResponse: FollowGameScheduleResponse) => {
+    const playerGamesCall = client.FollowPlayerGames({ playerId: this.playerID }, metadata);
+    playerGamesCall.on('data', (playerGamesResponse: FollowPlayerGamesResponse) => {
+      let playClosed = false;
+      let gameClosed = false;
       getGameClient(this.endpoint).then((gameClient) => {
+
+        function endCalls() {
+          gameCall.end();
+          if (playCall) {
+            playCall.end();
+          }
+        }
+
         const gameCall = gameClient.FollowGame(metadata);
 
         gameCall.on('error', (error) => {
-          scheduleCall.cancel();
-          console.log('errpr on gamecall')
+          playerGamesCall.cancel();
+          endCalls();
+          console.log('error on gamecall')
           reject(error);
         });
         gameCall.on('end', () => {
-          gameCall.end();
+          endCalls();
         })
         const playCall = gameClient.PlayGame(metadata, (error, result) => {
+          endCalls();
           if (error) {
             reject(error);
           }
+        });
+
+
+        const notifyClose = () => {
+          if (playClosed && gameClosed) {
+            push();
+          }
+        }
+
+        playCall.on('close', () => {
+          playClosed = true;
+          notifyClose();
+        });
+        gameCall.on('close', () => {
+          gameClosed = true;
+          notifyClose();
         });
 
         let gameState: GS = null;
@@ -77,30 +99,28 @@ export class PlayfulBotGrpc<GS extends GameState> {
         gameCall.on('data', (gameResponse: FollowGameResponse) => {
           if ('game' in gameResponse) {
             gameState = JSON.parse(gameResponse.game.gameState);
-            const assignments = gameResponse.game.assignments;
-            playerNumber = assignments.find((assignment) => assignment.playerId === this.playerID).playerNumber;
+            playerNumber = gameResponse.game.players.findIndex((player) => player.id === this.playerID);
           } else {
             jsonpatch.applyPatch(gameState, JSON.parse(gameResponse.patch.patch) as any, false, true);
           }
           if (gameState.end) {
-            gameCall.end();
-            playCall.end();
-            push();
+            endCalls()
           } else {
             if (gameState.players[playerNumber].playing) {
               const action = this.ai.run(gameState, playerNumber);
 
-              const playMessage = { gameId: scheduleResponse.schedule.gameId, playerId: this.playerID, action: action.name, data: JSON.stringify(action.data) };
+              const playMessage = { gameId: playerGamesResponse.games[0], playerId: this.playerID, action: action.name, data: JSON.stringify(action.data) };
 
               playCall.write(playMessage);
             }
           }
         });
 
-        gameCall.write({ gameId: scheduleResponse.schedule.gameId });
+        // FIXME: handle more games than the first one
+        gameCall.write({ gameId: playerGamesResponse.games[0] });
       });
     });
-    scheduleCall.on('error', (error) => {
+    playerGamesCall.on('error', (error) => {
       console.log('error on scheduleCall');
       // FIXME: end every grpc connection
       reject(error);

@@ -4,9 +4,6 @@ import * as path from 'path';
 
 
 import { ClientInterfaces, ProtoGrpcType, ServiceHandlers } from './proto/types/playfulbot_v0';
-import { FollowGameScheduleRequest } from './proto/types/playfulbot/v0/FollowGameScheduleRequest';
-import { FollowGameScheduleResponse } from './proto/types/playfulbot/v0/FollowGameScheduleResponse';
-import { CreateNewDebugGameForUserResponse } from './proto/types/playfulbot/v0/CreateNewDebugGameForUserResponse';
 import { verify } from 'jsonwebtoken';
 import { resolve } from 'path';
 import { FollowGameResponse, FollowGameResponse__Output } from './proto/types/playfulbot/v0/FollowGameResponse';

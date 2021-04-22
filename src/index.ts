@@ -8,15 +8,23 @@ import jwt from 'jsonwebtoken';
 import { GameScheduler } from './GameScheduler';
 import { exit } from "process";
 
+function createPlayerID(tournamentID: string, userID: string, playerNumber: number) {
+  const debugArenaID = `${tournamentID}_${userID}`;
+  return `${debugArenaID}_player${playerNumber}`;
+}
 
-async function *runDebugGame(userID: string, graphqlEndpoint: string, grpcEndpoint: string): AsyncGenerator<number, void, unknown> {
-
+function createToken(tournamentID: string, userID: string, playerNumber: number) {
   const SECRET_KEY = 'secret!';
-  const token1 = jwt.sign({ playerID: 'player_0', gameScheduleID: userID }, SECRET_KEY);
-  const token2 = jwt.sign({ playerID: 'player_1', gameScheduleID: userID }, SECRET_KEY);
+  const playerID = createPlayerID(tournamentID, userID, playerNumber);
+  return jwt.sign({ playerID: playerID }, SECRET_KEY);
+}
+
+async function *runDebugGame(tournamentID: string, userID: string, graphqlEndpoint: string, grpcEndpoint: string): AsyncGenerator<number, void, unknown> {
+  const token1 = createToken(tournamentID, userID, 0);
+  const token2 = createToken(tournamentID, userID, 1);
 
 
-  const scheduler = new GameScheduler(token1, graphqlEndpoint);
+  const scheduler = new GameScheduler(tournamentID, userID, token1, graphqlEndpoint);
   await scheduler.createNewDebugGame();
   const ai1 = new WallRaceAI();
   // const bot1 = new PlayfulBot<WallRaceGameState>(token1, ai1, graphqlEndpoint);
@@ -40,7 +48,7 @@ async function *runDebugGame(userID: string, graphqlEndpoint: string, grpcEndpoi
       iterBot1.next(),
       iterBot2.next(),
     ]);
-    await scheduler.createNewDebugGame();
+    const result = await scheduler.createNewDebugGame();
 
     let now = Math.floor(new Date().getTime() / 10000);
     if (timeSlot === now) {
@@ -55,13 +63,16 @@ async function *runDebugGame(userID: string, graphqlEndpoint: string, grpcEndpoi
 
 async function benchmark(start: number, end: number, graphqlEndpoint: string, grpcEndpoint: string) {
   const playedGames = [];
+  const tournamentID = '00000000-0000-0000-0000-0000000000a1';
   for (let idx = start; idx < end; idx += 1) {
     let userNB = idx.toString(16);
     if (userNB.length < 2) {
       userNB = `0${userNB}`;
     }
+
+    const userID = `00000000-0000-0000-0000-000000000e${userNB}`
   
-    const iterator = runDebugGame(`00000000-0000-0000-0000-000000000e${userNB}`, graphqlEndpoint, grpcEndpoint)
+    const iterator = runDebugGame(tournamentID, userID, graphqlEndpoint, grpcEndpoint)
     playedGames.push(iterator);
   }
 

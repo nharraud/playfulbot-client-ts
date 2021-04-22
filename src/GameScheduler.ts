@@ -10,9 +10,11 @@ import { toPromise } from "@apollo/client/core";
 export class GameScheduler {
   client: SubscriptionClient;
   link: WebSocketLink;
-  gameScheduleID: string;
+  playerID: string;
+  tournamentID: string;
+  userID: string;
 
-  constructor(token: string, graphqlEndpoint: string) {
+  constructor(tournamentID: string, userID: string, token: string, graphqlEndpoint: string) {
     this.client = new SubscriptionClient(graphqlEndpoint, {
       reconnect: true,
       lazy: true,
@@ -26,20 +28,20 @@ export class GameScheduler {
 
     this.link = new WebSocketLink(this.client);
 
-    const { gameScheduleID } = jwt.decode(token, {json: true});
-    this.gameScheduleID = gameScheduleID
+    const { playerID } = jwt.decode(token, {json: true});
+    this.playerID = playerID;
+    this.tournamentID = tournamentID;
+    this.userID = userID;
   }
 
   async createNewDebugGame() {
     const NEW_DEBUG_GAME_MUTATION = {
       query: gql`
-        mutation CreateNewDebugGameForUser($userID: ID!) {
-          createNewDebugGameForUser(userID: $userID) {
-            id
-          }
+        mutation createNewDebugGame($tournamentID: ID!, $userID: ID!) {
+          createNewDebugGame(tournamentID: $tournamentID, userID: $userID)
         }
       `,
-      variables: {userID: this.gameScheduleID}
+      variables: { userID: this.userID, tournamentID: this.tournamentID }
     };
     return toPromise(execute(this.link, NEW_DEBUG_GAME_MUTATION));
   }
