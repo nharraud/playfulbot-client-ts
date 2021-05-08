@@ -39,28 +39,39 @@ function collidesWithWalls(coordinate: Coordinate, walls: Coordinate[][], arenaS
   return false;
 }
 
+function getRandomInt(max: number) {
+  return Math.round(Math.random() * max);
+}
+
+interface Move {
+  position: Coordinate,
+  vector: Coordinate,
+}
+
 export class WallRaceAI implements BotAI<WallRaceGameState> {
 
   run(gameState: WallRaceGameState, playerNumber: number): GameAction {
 
     const path = gameState.walls[playerNumber];
     const position = path[path.length - 1];
-    const up: Coordinate = [position[0], position[1] + 1];
-    const down: Coordinate = [position[0], position[1] - 1];
-    const left: Coordinate = [position[0] - 1, position[1]];
-    const right: Coordinate = [position[0] + 1, position[1]];
+    const up: Move = { vector: [0, 1], position: [position[0], position[1] + 1] };
+    const down: Move = { vector: [0, -1], position: [position[0], position[1] - 1] };
+    const left: Move = { vector: [-1, 0], position: [position[0] - 1, position[1]] };
+    const right: Move = { vector: [1, 0], position: [position[0] + 1, position[1]] };
+
+    const allMoves = [up, down, left, right];
+    const possibleMoves = allMoves.filter((move) => !collidesWithWalls(move.position, gameState.walls, gameState.arena.size));
 
     let vector: Coordinate = null;
-    if (!collidesWithWalls(up, gameState.walls, gameState.arena.size)) {
-      vector = [0, 1];
-    } else if (!collidesWithWalls(down, gameState.walls, gameState.arena.size)) {
-      vector = [0, -1];
-    } else if (!collidesWithWalls(left, gameState.walls, gameState.arena.size)) {
-      vector = [-1, 0];
+
+    if (possibleMoves.length === 0) {
+      vector = up.vector;
+    } else if (possibleMoves.length === 1) {
+      vector = possibleMoves[0].vector;
     } else {
-      vector = [1, 0];
+      vector = possibleMoves[getRandomInt(possibleMoves.length - 1)].vector;
     }
-    
+
     return { name: "move", data: { vector } }
   }
 }
