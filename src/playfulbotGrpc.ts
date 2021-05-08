@@ -97,6 +97,9 @@ export class PlayfulBotGrpc<GS extends GameState> {
         if ('game' in gameResponse) {
           gameState = JSON.parse(gameResponse.game.gameState);
           playerNumber = gameResponse.game.players.findIndex((player) => player.id === this.playerID);
+        } else if ('canceled' in gameResponse) {
+          endCalls();
+          return;
         } else {
           jsonpatch.applyPatch(gameState, JSON.parse(gameResponse.patch.patch) as any, false, true);
         }
