@@ -28,6 +28,10 @@ export function createClient(url: string): Promise<ClientInterfaces.playfulbot.v
       url,
       channelCreds, {
         // 'grpc.max_concurrent_streams': 50,
+        // 'grpc.keepalive_time_ms': 1000,
+        // 'grpc.keepalive_timeout_ms': 2000,
+        // 'grpc.keepalive_permit_without_calls': 1,
+        // 'grpc.http2.max_pings_without_data': 0,
       }
     );
     

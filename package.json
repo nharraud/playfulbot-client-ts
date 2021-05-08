@@ -5,7 +5,7 @@
   "main": "src/index.ts",
   "scripts": {
     "test": "jest",
-    "benchmark": "node --require ts-node/register --require tsconfig-paths/register src/index.ts",
+    "bot": "node --require ts-node/register --require tsconfig-paths/register src/index.ts",
     "grpc": "node --require ts-node/register --require tsconfig-paths/register src/grpc/client.ts",
     "gen-grpc": "rm -rf ./src/grpc/proto/types && proto-loader-gen-types --longs=String --enums=String --defaults --oneofs --grpcLib=@grpc/grpc-js --outDir=src/grpc/proto/types src/grpc/proto/**/**/*.proto"
   },
