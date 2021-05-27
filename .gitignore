@@ -102,3 +102,6 @@ dist
 
 # TernJS port file
 .tern-port
+
+# generated grpc code
+src/grpc/proto/**/*.ts
