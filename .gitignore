@@ -104,4 +104,4 @@ dist
 .tern-port
 
 # generated grpc code
-src/grpc/proto/**/*.ts
+src/grpc/types/**/*.ts

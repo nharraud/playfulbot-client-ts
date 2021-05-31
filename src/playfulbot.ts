@@ -1,132 +1,122 @@
-import { SubscriptionClient } from "subscriptions-transport-ws";
-import gql from 'graphql-tag';
-import { execute } from '@apollo/client/link/core';
-import { toPromise } from '@apollo/client/link/utils';
-import { WebSocketLink } from "@apollo/client/link/ws";
-import ws from 'ws';
-
 import jwt from 'jsonwebtoken';
+import * as grpc from '@grpc/grpc-js';
 
-import { GameState, BotAI, PlayerAssignment } from "./types";
-import { observableToAsyncGenerator } from './utils/async';
-import { PlayedGame } from "./utils/game";
+import * as jsonpatch from 'fast-json-patch';
+
+import type { BotAI, GameState } from "./types";
+import { createClient } from './grpc/client';
+import type { PlayfulBotClient } from './grpc/types/playfulbot/v0/PlayfulBot';
+import type { FollowGameResponse } from './grpc/types/playfulbot/v0/FollowGameResponse';
+import type { FollowPlayerGamesResponse } from './grpc/types/playfulbot/v0/FollowPlayerGamesResponse';
 
 export class PlayfulBot<GS extends GameState> {
-  client: SubscriptionClient;
-  link: WebSocketLink;
   ai: BotAI<GS>;
   playerID: string;
-  gameScheduleID: string;
+  endpoint: string;
+  token: string;
 
-  constructor(token: string, botAI: BotAI<GS>, graphqlEndpoint: string) {
-    this.client = new SubscriptionClient(graphqlEndpoint, {
-      reconnect: true,
-      lazy: true,
-      connectionParams: async () => {
-        return {
-          authToken: token,
-        }
-      },
-    }, ws);
-    this.client.onError((err) => console.log('onError', { err }));
-
-    this.link = new WebSocketLink(this.client);
-
+  constructor(token: string, botAI: BotAI<GS>, endpoint?: string) {
     const { playerID, gameScheduleID } = jwt.decode(token, {json: true});
     this.playerID = playerID;
-    this.gameScheduleID = gameScheduleID;
+    this.endpoint = endpoint || 'playfulbot.com:5000';
+    this.token = token;
 
     this.ai = botAI;
   }
 
-
-  async *run(): AsyncGenerator<void, void, unknown> {
-    for await (const game of this.games()) {
-      for await (const gameState of game.gameStates()) {
-        const action = this.ai.run(gameState, game.playerNumber);
-        await this.play(game, action.name, action.data);
-      }
-      yield;
-    }
-  }
-
-  async play(game: PlayedGame<GS>, action: any, data: any) {
-    const playMutation = {
-      query: gql`
-        mutation Play($gameID: ID!, $playerID: ID!, $action: String!, $data: JSON!) {
-          play(gameID: $gameID, playerID: $playerID, action: $action, data: $data)
-        }
-      `,
-      variables: {gameID: game.gameID, playerID: this.playerID, action: action, data: data},
-    };
+  async run() {
+    const client = await createClient(this.endpoint);
     
-    return toPromise(execute(this.link, playMutation));
-  }
+    const authMetadata = new grpc.Metadata();
+    authMetadata.set('authorization', this.token);
 
-  async *games(): AsyncGenerator<PlayedGame<GS>, void, unknown> {
-    const GAME_SCHEDULE_QUERY = {
-      query: gql`
-        query getGameSchedule($scheduleID: ID!) {
-          gameSchedule(scheduleID: $scheduleID) {
-            id
-            players {
-              id, token
-            }
-            game {
-              id
-              version,
-              assignments {
-                playerID, playerNumber
-              }
-              gameState
-            }
-          }
-        }
-      `,
-      variables: { scheduleID: this.gameScheduleID }
-    };
-
-    const GAME_SCHEDULE_SUBSCRIPTION = {
-      query: gql`
-        subscription onGameScheduleChanges($scheduleID: ID!) {
-          gameScheduleChanges(scheduleID: $scheduleID) {
-            id
-            players {
-              id, token
-            }
-            game {
-              id
-              version,
-              assignments {
-                playerID, playerNumber
-              }
-              gameState
-            }
-          }
-        }
-      `,
-      variables: { scheduleID: this.gameScheduleID }
-    };
-
-    const scheduledGames: any = observableToAsyncGenerator(execute(this.link, GAME_SCHEDULE_SUBSCRIPTION))
-
-    let gameScheduleResponse = await toPromise(execute(this.link, GAME_SCHEDULE_QUERY));
-
-    if (!gameScheduleResponse?.data?.gameSchedule?.id) {
-      console.log(JSON.stringify(gameScheduleResponse, null, 2))
-      throw new Error("Game Schedule could not be retrieved");
-    }
-    const assignments: PlayerAssignment[] = gameScheduleResponse.data.gameSchedule.game.assignments;
-    const playerNumber = assignments.find((assignment) => assignment.playerID === this.playerID).playerNumber;
-    yield new PlayedGame<GS>(gameScheduleResponse.data.gameSchedule.game.id, playerNumber, this.link)
-
-    for await (const scheduledGame of scheduledGames) {
-      if (gameScheduleResponse.data.gameSchedule.game.id === scheduledGame.data.gameScheduleChanges.game.id) {
-        continue;
+    const playerGamesCall = client.FollowPlayerGames({ playerId: this.playerID }, authMetadata);
+    playerGamesCall.on('data', (playerGamesResponse: FollowPlayerGamesResponse) => {
+      // playerGamesResponse.games[0]
+      console.log(JSON.stringify(playerGamesResponse));
+      for (const gameID of playerGamesResponse.games) {
+        this.playGame(gameID, client, authMetadata).catch((error) => {
+          console.error('ERROR while playing game');
+          console.error(error);
+          process.exit(1);
+        });
       }
-      yield new PlayedGame<GS>(scheduledGame.data.gameScheduleChanges.game.id, playerNumber, this.link)
-    }
 
+
+    });
+    playerGamesCall.on('error', (error) => {
+      console.log('error on PlayerGames');
+      // FIXME: end every grpc connection
+      process.exit(1);
+    });
   }
 
+  async playGame(gameID: string, client: PlayfulBotClient, authMetadata: grpc.Metadata): Promise<void> {
+    return new Promise<void>((resolve, reject) => {
+      const gameCall = client.FollowGame(authMetadata);
+
+      function endCalls() {
+        gameCall.end();
+        if (playCall) {
+          playCall.end();
+        }
+      }
+      gameCall.on('error', (error) => {
+        // playerGamesCall.cancel();
+        // endCalls();
+        console.log('error on gamecall');
+        process.exit(1);
+      });
+      gameCall.on('end', () => {
+        endCalls();
+      })
+      const playCall = client.PlayGame(authMetadata, (error, result) => {
+        endCalls();
+      });
+
+      let playClosed = false;
+      let gameClosed = false;
+      const notifyClose = () => {
+        if (playClosed && gameClosed) {
+          resolve();
+        }
+      }
+
+      playCall.on('close', () => {
+        playClosed = true;
+        notifyClose();
+      });
+      gameCall.on('close', () => {
+        gameClosed = true;
+        notifyClose();
+      });
+
+      let gameState: GS = null;
+      let playerNumber: number = null;
+      gameCall.on('data', (gameResponse: FollowGameResponse) => {
+        if ('game' in gameResponse) {
+          gameState = JSON.parse(gameResponse.game.gameState);
+          playerNumber = gameResponse.game.players.findIndex((player) => player.id === this.playerID);
+        } else if ('canceled' in gameResponse) {
+          endCalls();
+          return;
+        } else {
+          jsonpatch.applyPatch(gameState, JSON.parse(gameResponse.patch.patch) as any, false, true);
+        }
+        if (gameState.end) {
+          endCalls()
+        } else {
+          if (gameState.players[playerNumber].playing) {
+            const action = this.ai.run(gameState, playerNumber);
+
+            const playMessage = { gameId: gameID, playerId: this.playerID, action: action.name, data: JSON.stringify(action.data) };
+
+            playCall.write(playMessage);
+          }
+        }
+      });
+
+      gameCall.write({ gameId: gameID });
+    });
+  }
 }

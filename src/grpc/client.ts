@@ -1,13 +1,8 @@
 import * as grpc from '@grpc/grpc-js';
 import * as protoLoader from '@grpc/proto-loader';
 import * as path from 'path';
-
-
-import { ClientInterfaces, ProtoGrpcType, ServiceHandlers } from './proto/types/playfulbot_v0';
-import { verify } from 'jsonwebtoken';
-import { resolve } from 'path';
-import { FollowGameResponse, FollowGameResponse__Output } from './proto/types/playfulbot/v0/FollowGameResponse';
-import { FollowGameRequest } from './proto/types/playfulbot/v0/FollowGameRequest';
+import type { ProtoGrpcType } from './types/playfulbot_v0';
+import type { PlayfulBotClient } from './types/playfulbot/v0/PlayfulBot';
 
 const PROTO_PATH = path.join(__dirname, 'proto', 'playfulbot', 'v0', 'playfulbot_v0.proto');
 
@@ -18,7 +13,7 @@ const proto = (grpc.loadPackageDefinition(
 ) as unknown) as ProtoGrpcType;
 
 
-export function createClient(url: string): Promise<ClientInterfaces.playfulbot.v0.PlayfulBotClient> {
+export function createClient(url: string): Promise<PlayfulBotClient> {
   // Note that we could add the token to call credentials with "createFromMetadataGenerator". However
   // for some reason it slows down requests a lot. Adding the token to each request metadata doesn't
   // have this slowing effect.
@@ -26,13 +21,7 @@ export function createClient(url: string): Promise<ClientInterfaces.playfulbot.v
   return new Promise((resolve, reject) => {
     const client = new proto.playfulbot.v0.PlayfulBot(
       url,
-      channelCreds, {
-        // 'grpc.max_concurrent_streams': 50,
-        // 'grpc.keepalive_time_ms': 1000,
-        // 'grpc.keepalive_timeout_ms': 2000,
-        // 'grpc.keepalive_permit_without_calls': 1,
-        // 'grpc.http2.max_pings_without_data': 0,
-      }
+      channelCreds
     );
     
     const deadline = new Date();
