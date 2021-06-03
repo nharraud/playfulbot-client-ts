@@ -6,7 +6,7 @@
   "types": "dist/index.d.ts",
   "scripts": {
     "clean": "rm -rf dist src/grpc/types",
-    "prebuild": "node run gen-grpc",
+    "prebuild": "npm run gen-grpc",
     "build": "tsc",
     "copy-resources": "mkdir ./dist/grpc/proto && cp -r ./src/grpc/proto/* ./dist/grpc/proto/",
     "test": "jest",

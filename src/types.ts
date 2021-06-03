@@ -7,8 +7,8 @@ export interface GameState {
 }
 
 export interface PlayerState {
-  points: number,
-  playing: boolean
+  winner?: boolean,
+  playing: boolean,
 }
 
 export interface GameAction {

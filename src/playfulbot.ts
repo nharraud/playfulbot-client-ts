@@ -11,13 +11,11 @@ import type { FollowPlayerGamesResponse } from './grpc/types/playfulbot/v0/Follo
 
 export class PlayfulBot<GS extends GameState> {
   ai: BotAI<GS>;
-  playerID: string;
   endpoint: string;
   token: string;
+  client?: PlayfulBotClient;
 
   constructor(token: string, botAI: BotAI<GS>, endpoint?: string) {
-    const { playerID, gameScheduleID } = jwt.decode(token, {json: true});
-    this.playerID = playerID;
     this.endpoint = endpoint || 'playfulbot.com:5000';
     this.token = token;
 
@@ -26,35 +24,39 @@ export class PlayfulBot<GS extends GameState> {
 
   async run() {
     const client = await createClient(this.endpoint);
+    const playedGamesPromises = new Set<Promise<void>>();
     
     const authMetadata = new grpc.Metadata();
     authMetadata.set('authorization', this.token);
 
-    const playerGamesCall = client.FollowPlayerGames({ playerId: this.playerID }, authMetadata);
-    playerGamesCall.on('data', (playerGamesResponse: FollowPlayerGamesResponse) => {
-      // playerGamesResponse.games[0]
-      console.log(JSON.stringify(playerGamesResponse));
-      for (const gameID of playerGamesResponse.games) {
-        this.playGame(gameID, client, authMetadata).catch((error) => {
-          console.error('ERROR while playing game');
-          console.error(error);
-          process.exit(1);
+    return new Promise<void>((resolve, reject) => {
+      const playerGamesCall = client.FollowPlayerGames({}, authMetadata);
+      playerGamesCall.on('data', (playerGamesResponse: FollowPlayerGamesResponse) => {
+        console.log(`Receiving ${playerGamesResponse.games.length} new game(s).`);
+        for (const gameID of playerGamesResponse.games) {
+          let gamePromise = this.playGame(gameID, client, authMetadata)
+          .catch((error) => {
+            reject(error);
+          })
+          .finally(() => playedGamesPromises.delete(gamePromise));
+          playedGamesPromises.add(gamePromise);
+        }
+      });
+      playerGamesCall.on('error', (error) => {
+        reject(error);
+      });
+      playerGamesCall.on('close', () => {
+        Promise.all(playedGamesPromises)
+        .then(() => {
+          resolve()
         });
-      }
-
-
-    });
-    playerGamesCall.on('error', (error) => {
-      console.log('error on PlayerGames');
-      // FIXME: end every grpc connection
-      process.exit(1);
-    });
+      })
+    })
   }
 
   async playGame(gameID: string, client: PlayfulBotClient, authMetadata: grpc.Metadata): Promise<void> {
     return new Promise<void>((resolve, reject) => {
       const gameCall = client.FollowGame(authMetadata);
-
       function endCalls() {
         gameCall.end();
         if (playCall) {
@@ -62,15 +64,15 @@ export class PlayfulBot<GS extends GameState> {
         }
       }
       gameCall.on('error', (error) => {
-        // playerGamesCall.cancel();
-        // endCalls();
-        console.log('error on gamecall');
-        process.exit(1);
+        reject(error);
       });
       gameCall.on('end', () => {
         endCalls();
       })
       const playCall = client.PlayGame(authMetadata, (error, result) => {
+        if (error) {
+          reject(error);
+        }
         endCalls();
       });
 
@@ -91,12 +93,12 @@ export class PlayfulBot<GS extends GameState> {
         notifyClose();
       });
 
-      let gameState: GS = null;
-      let playerNumber: number = null;
+      let gameState: GS;
+      let player: number;
       gameCall.on('data', (gameResponse: FollowGameResponse) => {
         if ('game' in gameResponse) {
           gameState = JSON.parse(gameResponse.game.gameState);
-          playerNumber = gameResponse.game.players.findIndex((player) => player.id === this.playerID);
+          player = gameResponse.game.player;
         } else if ('canceled' in gameResponse) {
           endCalls();
           return;
@@ -106,10 +108,10 @@ export class PlayfulBot<GS extends GameState> {
         if (gameState.end) {
           endCalls()
         } else {
-          if (gameState.players[playerNumber].playing) {
-            const action = this.ai.run(gameState, playerNumber);
+          if (gameState.players[player].playing) {
+            const action = this.ai.run(gameState, player);
 
-            const playMessage = { gameId: gameID, playerId: this.playerID, action: action.name, data: JSON.stringify(action.data) };
+            const playMessage = { gameId: gameID, action: action.name, data: JSON.stringify(action.data) };
 
             playCall.write(playMessage);
           }

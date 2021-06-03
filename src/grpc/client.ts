@@ -8,12 +8,12 @@ const PROTO_PATH = path.join(__dirname, 'proto', 'playfulbot', 'v0', 'playfulbot
 
 
 const packageDefinition = protoLoader.loadSync(PROTO_PATH);
-const proto = (grpc.loadPackageDefinition(
+export const proto = (grpc.loadPackageDefinition(
   packageDefinition
 ) as unknown) as ProtoGrpcType;
 
 
-export function createClient(url: string): Promise<PlayfulBotClient> {
+export function createClient(url: string, options: { timeout: number } = { timeout: 5000 }): Promise<PlayfulBotClient> {
   // Note that we could add the token to call credentials with "createFromMetadataGenerator". However
   // for some reason it slows down requests a lot. Adding the token to each request metadata doesn't
   // have this slowing effect.
@@ -25,11 +25,12 @@ export function createClient(url: string): Promise<PlayfulBotClient> {
     );
     
     const deadline = new Date();
-    deadline.setSeconds(deadline.getSeconds() + 5);
+    deadline.setMilliseconds(deadline.getMilliseconds() + options.timeout);
     client.waitForReady(deadline, (error?: Error) => {
       if (error) {
-        reject(`Client connect error: ${error.message}`);
+        reject(error);
       } else {
+        console.log('Connected to server.');
         resolve(client);
       }
     });
