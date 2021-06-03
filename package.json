@@ -1,13 +1,14 @@
 {
   "name": "playfulbot-client",
-  "version": "1.0.0",
-  "description": "",
+  "version": "1.0.0-alpha.0",
+  "description": "Typescript & Javascript client for playfulbot.com",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "scripts": {
     "clean": "rm -rf dist src/grpc/types",
-    "prebuild": "npm run gen-grpc",
+    "prebuild": "npm run clean && npm run gen-grpc",
     "build": "tsc",
+    "prepare": "npm run build && npm run copy-resources",
     "copy-resources": "mkdir ./dist/grpc/proto && cp -r ./src/grpc/proto/* ./dist/grpc/proto/",
     "test": "jest",
     "bot": "node --require ts-node/register --require tsconfig-paths/register src/index.ts",
@@ -23,6 +24,9 @@
     "url": "https://github.com/nharraud/playfulbot-client-ts/issues"
   },
   "homepage": "https://github.com/nharraud/playfulbot-client-ts#readme",
+  "engines": {
+    "node": ">=16.1.0"
+  },
   "devDependencies": {
     "@babel/core": "^7.12.10",
     "@babel/preset-env": "^7.12.11",
@@ -42,5 +46,6 @@
     "@grpc/proto-loader": "^0.6.0-pre18",
     "fast-json-patch": "^3.0.0-1",
     "jsonwebtoken": "^8.5.1"
-  }
+  },
+  "files": ["dist"]
 }

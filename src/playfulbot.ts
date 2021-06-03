@@ -10,15 +10,13 @@ import type { FollowGameResponse } from './grpc/types/playfulbot/v0/FollowGameRe
 import type { FollowPlayerGamesResponse } from './grpc/types/playfulbot/v0/FollowPlayerGamesResponse';
 
 export class PlayfulBot<GS extends GameState> {
-  ai: BotAI<GS>;
-  endpoint: string;
-  token: string;
-  client?: PlayfulBotClient;
+  readonly ai: BotAI<GS>;
+  readonly token: string;
+  readonly endpoint: string;
 
   constructor(token: string, botAI: BotAI<GS>, endpoint?: string) {
     this.endpoint = endpoint || 'playfulbot.com:5000';
     this.token = token;
-
     this.ai = botAI;
   }
 
@@ -54,7 +52,7 @@ export class PlayfulBot<GS extends GameState> {
     })
   }
 
-  async playGame(gameID: string, client: PlayfulBotClient, authMetadata: grpc.Metadata): Promise<void> {
+  private async playGame(gameID: string, client: PlayfulBotClient, authMetadata: grpc.Metadata): Promise<void> {
     return new Promise<void>((resolve, reject) => {
       const gameCall = client.FollowGame(authMetadata);
       function endCalls() {

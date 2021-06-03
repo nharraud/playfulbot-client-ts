@@ -70,7 +70,7 @@
   "exclude": [
     "node_modules",
     "jest.config.ts",
-    "__tests__",
+    "src/__tests__",
     "dist",
     "tmp",
   ]
