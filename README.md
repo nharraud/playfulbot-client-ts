@@ -6,13 +6,13 @@ This library enables you to program a bot in javascript or typescript and let it
 Example
 -------
 ```typescript
-import { PlayfulBot, BotAI, GameAction, GameState } from 'playfulbot-client';
+import { PlayfulBot, BotAI, GameState } from 'playfulbot-client';
 
 const token = 'Token copied from playfulbot website.' 
 
 export class MyAI implements BotAI<GameState> {
 
-  run(gameState: GameState, playerNumber: number): GameAction {
+  run(gameState: GameState, playerNumber: number): unknown {
     return // action
   }
 }

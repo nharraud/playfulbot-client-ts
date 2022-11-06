@@ -11,11 +11,6 @@ export interface PlayerState {
   playing: boolean,
 }
 
-export interface GameAction {
-  name: string,
-  data: any
-}
-
 export interface BotAI<GS extends GameState> {
-  run(gameState: GS, playerNumber: number): GameAction;
+  run(gameState: GS, playerNumber: number): unknown;
 }

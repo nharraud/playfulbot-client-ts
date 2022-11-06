@@ -1,2 +1,2 @@
 export { PlayfulBot } from './playfulbot';
-export { GameState, PlayerState, GameAction, BotAI } from './types';
+export { GameState, PlayerState, BotAI } from './types';

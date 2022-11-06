@@ -109,7 +109,7 @@ export class PlayfulBot<GS extends GameState> {
           if (gameState.players[player].playing) {
             const action = this.ai.run(gameState, player);
 
-            const playMessage = { gameId: gameID, action: action.name, data: JSON.stringify(action.data) };
+            const playMessage = { gameId: gameID, data: JSON.stringify(action) };
 
             playCall.write(playMessage);
           }

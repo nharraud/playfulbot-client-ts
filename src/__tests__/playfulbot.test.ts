@@ -119,7 +119,6 @@ describe('PlayfulBot', () => {
       expect(request).resolves.toMatchObject(
         {
           gameId: testGameInit.id,
-          action: noopActionName,
           data: JSON.stringify(noopData),
         }
       );
