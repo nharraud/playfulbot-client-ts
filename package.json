@@ -11,7 +11,10 @@
     "build": "tsc",
     "prebuild": "npm run clean && npm run gen-grpc",
     "gen-grpc": "rm -rf ./src/grpc/proto/types && proto-loader-gen-types --longs=String --enums=String --defaults --oneofs --grpcLib=@grpc/grpc-js --outDir=src/grpc/types src/grpc/proto/**/**/*.proto",
-    "clean": "rm -rf dist src/grpc/types"
+    "clean": "rm -rf dist src/grpc/types",
+    "preversion": "npm run test",
+    "version": "npm pack",
+    "postversion": "git push && git push --tags"
   },
   "repository": {
     "type": "git",
