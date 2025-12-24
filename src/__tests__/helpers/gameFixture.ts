@@ -1,4 +1,4 @@
-import { Game } from "../../grpc/types/playfulbot/v0/Game";
+import { Game } from "../../grpc/types/playfulbot_runner/v0/Game";
 import { GameState } from "../../types";
 
 export const testGameState: GameState = {

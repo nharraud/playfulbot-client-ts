@@ -1,13 +1,13 @@
-import jwt from 'jsonwebtoken';
 import * as grpc from '@grpc/grpc-js';
 
 import * as jsonpatch from 'fast-json-patch';
 
 import type { BotAI, GameState } from "./types";
-import { createClient } from './grpc/client';
-import type { PlayfulBotClient } from './grpc/types/playfulbot/v0/PlayfulBot';
-import type { FollowGameResponse } from './grpc/types/playfulbot/v0/FollowGameResponse';
-import type { FollowPlayerGamesResponse } from './grpc/types/playfulbot/v0/FollowPlayerGamesResponse';
+import { createBackendClient, createRunnerClient } from './grpc/client';
+import type { PlayfulBotClient } from './grpc/types/playfulbot_backend/v0/PlayfulBot';
+import type { FollowGameResponse } from './grpc/types/playfulbot_runner/v0/FollowGameResponse';
+import type { FollowPlayerGamesResponse } from './grpc/types/playfulbot_backend/v0/FollowPlayerGamesResponse';
+import { GameRef } from './grpc/types/playfulbot_backend/v0/GameRef';
 
 export class PlayfulBot<GS extends GameState> {
   readonly ai: BotAI<GS>;
@@ -21,18 +21,18 @@ export class PlayfulBot<GS extends GameState> {
   }
 
   async run() {
-    const client = await createClient(this.endpoint);
+    const backendClient = await createBackendClient(this.endpoint);
     const playedGamesPromises = new Set<Promise<void>>();
     
     const authMetadata = new grpc.Metadata();
     authMetadata.set('authorization', this.token);
 
     return new Promise<void>((resolve, reject) => {
-      const playerGamesCall = client.FollowPlayerGames({}, authMetadata);
+      const playerGamesCall = backendClient.FollowPlayerGames({}, authMetadata);
       playerGamesCall.on('data', (playerGamesResponse: FollowPlayerGamesResponse) => {
         console.log(`Receiving ${playerGamesResponse.games.length} new game(s).`);
-        for (const gameID of playerGamesResponse.games) {
-          let gamePromise = this.playGame(gameID, client, authMetadata)
+        for (const gameRef of playerGamesResponse.games) {
+          let gamePromise = this.playGame(gameRef, backendClient, authMetadata)
           .catch((error) => {
             reject(error);
           })
@@ -52,14 +52,16 @@ export class PlayfulBot<GS extends GameState> {
     })
   }
 
-  private async playGame(gameID: string, client: PlayfulBotClient, authMetadata: grpc.Metadata): Promise<void> {
+  private async playGame(gameRef: GameRef, client: PlayfulBotClient, authMetadata: grpc.Metadata): Promise<void> {
+    const runnerClient = await createRunnerClient(gameRef.url);
     return new Promise<void>((resolve, reject) => {
-      const gameCall = client.FollowGame(authMetadata);
+      const gameCall = runnerClient.FollowGame(authMetadata);
       function endCalls() {
         gameCall.end();
         if (playCall) {
           playCall.end();
         }
+        runnerClient.close();
       }
       gameCall.on('error', (error) => {
         reject(error);
@@ -67,7 +69,7 @@ export class PlayfulBot<GS extends GameState> {
       gameCall.on('end', () => {
         endCalls();
       })
-      const playCall = client.PlayGame(authMetadata, (error, result) => {
+      const playCall = runnerClient.PlayGame(authMetadata, (error, result) => {
         if (error) {
           reject(error);
         }
@@ -109,14 +111,14 @@ export class PlayfulBot<GS extends GameState> {
           if (gameState.players[player].playing) {
             const action = this.ai.run(gameState, player);
 
-            const playMessage = { gameId: gameID, data: JSON.stringify(action) };
+            const playMessage = { gameId: gameRef.id, data: JSON.stringify(action) };
 
             playCall.write(playMessage);
           }
         }
       });
 
-      gameCall.write({ gameId: gameID });
+      gameCall.write({ gameId: gameRef.id });
     });
   }
 }

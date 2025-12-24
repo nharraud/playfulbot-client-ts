@@ -5,12 +5,14 @@
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "scripts": {
-    "test": "jest",
+    "test": "vitest",
     "prepare": "npm run build && npm run copy-resources",
     "copy-resources": "mkdir ./dist/grpc/proto && cp -r ./src/grpc/proto/* ./dist/grpc/proto/",
     "build": "tsc",
     "prebuild": "npm run clean && npm run gen-grpc",
-    "gen-grpc": "rm -rf ./src/grpc/proto/types && proto-loader-gen-types --longs=String --enums=String --defaults --oneofs --grpcLib=@grpc/grpc-js --outDir=src/grpc/types src/grpc/proto/**/**/*.proto",
+    "gen-grpc-backend": "rm -rf ./src/grpc/proto/types/playfulbot_backend* && proto-loader-gen-types --longs=String --enums=String --defaults --oneofs --grpcLib=@grpc/grpc-js --outDir=src/grpc/types src/grpc/proto/playfulbot_backend/**/*.proto",
+    "gen-grpc-runner": "rm -rf ./src/grpc/proto/types/playfulbot_runner* && proto-loader-gen-types --longs=String --enums=String --defaults --oneofs --grpcLib=@grpc/grpc-js --outDir=src/grpc/types src/grpc/proto/playfulbot_runner/**/*.proto",
+    "gen-grpc": "npm run gen-grpc-backend && npm run gen-grpc-runner",
     "clean": "rm -rf dist src/grpc/types",
     "preversion": "npm run test",
     "version": "npm pack",
@@ -27,24 +29,22 @@
   },
   "homepage": "https://github.com/nharraud/playfulbot-client-ts#readme",
   "engines": {
-    "node": ">=16.1.0"
+    "node": ">=20.0.0"
   },
   "devDependencies": {
-    "@babel/core": "^7.12.10",
-    "@babel/preset-env": "^7.12.11",
-    "@babel/preset-typescript": "^7.12.7",
-    "@types/jest": "^26.0.19",
-    "@types/jsonwebtoken": "^8.5.0",
-    "@types/node": "^14.14.16",
-    "babel-jest": "^26.6.3",
-    "jest": "^26.6.3",
-    "ts-node": "^10.0.0",
-    "typescript": "^4.1.3"
+    "@babel/core": "^7.28.5",
+    "@babel/preset-env": "^7.28.5",
+    "@babel/preset-typescript": "^7.28.5",
+    "@types/jsonwebtoken": "^9.0.10",
+    "@types/node": "^25.0.3",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.9.3",
+    "vitest": "^4.0.16"
   },
   "dependencies": {
-    "@grpc/grpc-js": "^1.2.12",
-    "@grpc/proto-loader": "^0.6.0-pre18",
-    "fast-json-patch": "^3.0.0-1"
+    "@grpc/grpc-js": "^1.14.3",
+    "@grpc/proto-loader": "^0.8.0",
+    "fast-json-patch": "^3.1.1"
   },
   "files": [
     "dist"

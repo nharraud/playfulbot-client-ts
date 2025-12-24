@@ -1,38 +1,49 @@
 import * as grpc from '@grpc/grpc-js';
 import * as protoLoader from '@grpc/proto-loader';
 import * as path from 'path';
-import type { ProtoGrpcType } from './types/playfulbot_v0';
-import type { PlayfulBotClient } from './types/playfulbot/v0/PlayfulBot';
+import type { ProtoGrpcType as BackendProtoGrpcType } from './types/playfulbot_backend_v0';
+import type { ProtoGrpcType as RunnerProtoGrpcType } from './types/playfulbot_runner_v0';
 
-const PROTO_PATH = path.join(__dirname, 'proto', 'playfulbot', 'v0', 'playfulbot_v0.proto');
+const BACKEND_PROTO_PATH = path.join(__dirname, 'proto', 'playfulbot_backend', 'v0', 'playfulbot_backend_v0.proto');
+const backendPackageDefinition = protoLoader.loadSync(BACKEND_PROTO_PATH);
+export const backendProto = (grpc.loadPackageDefinition(
+  backendPackageDefinition
+) as unknown) as BackendProtoGrpcType;
+
+const RUNNER_PROTO_PATH = path.join(__dirname, 'proto', 'playfulbot_runner', 'v0', 'playfulbot_runner_v0.proto');
+const runnerPackageDefinition = protoLoader.loadSync(RUNNER_PROTO_PATH);
+export const runnerProto = (grpc.loadPackageDefinition(
+  runnerPackageDefinition
+) as unknown) as RunnerProtoGrpcType;
 
 
-const packageDefinition = protoLoader.loadSync(PROTO_PATH);
-export const proto = (grpc.loadPackageDefinition(
-  packageDefinition
-) as unknown) as ProtoGrpcType;
+type Constructor = new (...args: any) => any;
 
-
-export function createClient(url: string, options: { timeout: number } = { timeout: 5000 }): Promise<PlayfulBotClient> {
-  // Note that we could add the token to call credentials with "createFromMetadataGenerator". However
-  // for some reason it slows down requests a lot. Adding the token to each request metadata doesn't
-  // have this slowing effect.
-  const channelCreds = grpc.credentials.createSsl();
-  return new Promise((resolve, reject) => {
-    const client = new proto.playfulbot.v0.PlayfulBot(
-      url,
-      channelCreds
-    );
-    
-    const deadline = new Date();
-    deadline.setMilliseconds(deadline.getMilliseconds() + options.timeout);
-    client.waitForReady(deadline, (error?: Error) => {
-      if (error) {
-        reject(error);
-      } else {
-        console.log('Connected to server.');
-        resolve(client);
-      }
+function clientFactory<ProtoType extends Constructor>(Proto: ProtoType) {
+  return function createClient(url: string, options: { timeout: number } = { timeout: 5000 }): Promise<InstanceType<ProtoType>> {
+    // Note that we could add the token to call credentials with "createFromMetadataGenerator". However
+    // for some reason it slows down requests a lot. Adding the token to each request metadata doesn't
+    // have this slowing effect.
+    const channelCreds = grpc.credentials.createSsl();
+    return new Promise((resolve, reject) => {
+      const client = new Proto(
+        url,
+        channelCreds
+      );
+      
+      const deadline = new Date();
+      deadline.setMilliseconds(deadline.getMilliseconds() + options.timeout);
+      client.waitForReady(deadline, (error?: Error) => {
+        if (error) {
+          reject(error);
+        } else {
+          console.log('Connected to server.');
+          resolve(client);
+        }
+      });
     });
-  });
+  }
 }
+
+export const createBackendClient = clientFactory(backendProto.playfulbot_backend.v0.PlayfulBot);
+export const createRunnerClient = clientFactory(runnerProto.playfulbot_runner.v0.PlayfulBotGameRunner);

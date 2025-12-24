@@ -1,17 +1,10 @@
 syntax = "proto3";
 
-package playfulbot.v0;
+package playfulbot_runner.v0;
 
-service PlayfulBot {
-  rpc FollowPlayerGames (FollowPlayerGamesRequest) returns (stream FollowPlayerGamesResponse) {}
+service PlayfulBotGameRunner {
   rpc FollowGame (stream FollowGameRequest) returns (stream FollowGameResponse) {}
   rpc PlayGame (stream PlayGameRequest) returns (PlayGameResponse) {}
-}
-
-message FollowPlayerGamesRequest {}
-
-message FollowPlayerGamesResponse {
-  repeated string games = 2;
 }
 
 message Game {

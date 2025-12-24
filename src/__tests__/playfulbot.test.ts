@@ -1,68 +1,73 @@
+import { describe, test, expect, vitest, MockedFunction } from 'vitest';
 import { PlayfulBot } from "../playfulbot";
 import { noopActionName, NoopAI, noopData } from "./helpers/aiFixture";
-import { createTestServerAndClient, MockPlayfulBotHandler } from "./helpers/testServer";
+import { createTestServersAndClient, MockBackendHandler, MockRunnerHandler } from "./helpers/testServers";
 import * as grpc from '@grpc/grpc-js';
 import { testGameInit } from "./helpers/gameFixture";
-import { PlayGameRequest } from "../grpc/types/playfulbot/v0/PlayGameRequest";
-import { FollowGameRequest } from "../grpc/types/playfulbot/v0/FollowGameRequest";
-import { AsyncStream } from "./helpers/AsyncStream";
-import { GameState } from "src/types";
+import { AsyncStream, DeferredPromise } from "./helpers/AsyncStream";
+import { PlayGameRequest } from '../grpc/types/playfulbot_runner/v0/PlayGameRequest';
+import { FollowGameRequest } from '../grpc/types/playfulbot_runner/v0/FollowGameRequest';
+import { GameState } from '../types';
 
 describe('PlayfulBot', () => {
   const token = 'mytoken';
 
-  afterEach(() => {
-    jest.clearAllMocks();
-  });
-
   test('should send authentication token to FollowPlayerGames', async () => {
-    const serverHandler = new MockPlayfulBotHandler();
+    const backendHandler = new MockBackendHandler();
+    const runnerHandler = new MockRunnerHandler();
     let receivedMetadata: grpc.Metadata;
-    serverHandler.FollowPlayerGames.mockImplementation((call) => {
+    backendHandler.FollowPlayerGames.mockImplementation((call) => {
       receivedMetadata = call.metadata;
       call.end();
     });
-    return  createTestServerAndClient(serverHandler, async (server, endpoint) => {
-      const bot = new PlayfulBot(token, new NoopAI(), endpoint)
+    await createTestServersAndClient({ backend: backendHandler, runner: runnerHandler }, async (servers) => {
+      const bot = new PlayfulBot(token, new NoopAI(), servers.backend.endpoint);
       await bot.run();
       expect(receivedMetadata.get('authorization')).toEqual(expect.arrayContaining([token]));
     })
   });
 
   test('should send authentication token to FollowGame', async () => {
-    const serverHandler = new MockPlayfulBotHandler();
+    const defPromise = new DeferredPromise<{ id: string, url: string}[][]>();
+    const backendHandler = new MockBackendHandler(defPromise.promise);
+    const runnerHandler = new MockRunnerHandler();
     let receivedMetadata: grpc.Metadata;
-    serverHandler.FollowGame.mockImplementation((call) => {
+    runnerHandler.FollowGame.mockImplementation((call) => {
       receivedMetadata = call.metadata;
       call.end();
     });
-    return  createTestServerAndClient(serverHandler, async (server, endpoint) => {
-      const bot = new PlayfulBot(token, new NoopAI(), endpoint)
+    await createTestServersAndClient({ backend: backendHandler, runner: runnerHandler }, async (servers) => {
+      defPromise.resolve([[{ url: servers.runner.endpoint, id: 'game0'}]]);
+      const bot = new PlayfulBot(token, new NoopAI(), servers.backend.endpoint)
       await bot.run();
       expect(receivedMetadata.get('authorization')).toEqual(expect.arrayContaining([token]));
     })
   });
 
   test('should send authentication token to PlayGame', async () => {
-    const serverHandler = new MockPlayfulBotHandler();
+    const defPromise = new DeferredPromise<{ id: string, url: string}[][]>();
+    const backendHandler = new MockBackendHandler(defPromise.promise);
+    const runnerHandler = new MockRunnerHandler();
     let receivedMetadata: grpc.Metadata;
-    serverHandler.PlayGame.mockImplementation((call) => {
+    runnerHandler.PlayGame.mockImplementation((call) => {
       receivedMetadata = call.metadata;
     });
-    return  createTestServerAndClient(serverHandler, async (server, endpoint) => {
-      const bot = new PlayfulBot(token, new NoopAI(), endpoint)
+    await createTestServersAndClient({ backend: backendHandler, runner: runnerHandler }, async (servers) => {
+      defPromise.resolve([[{ url: servers.runner.endpoint, id: 'game0'}]]);
+      const bot = new PlayfulBot(token, new NoopAI(), servers.backend.endpoint)
       await bot.run();
       expect(receivedMetadata.get('authorization')).toEqual(expect.arrayContaining([token]));
     })
   });
 
   test('should stop the bot when an error occurs from following player\'s games', async () => {
-    const serverHandler = new MockPlayfulBotHandler();
-    serverHandler.FollowPlayerGames.mockImplementation((call) => {
+    const backendHandler = new MockBackendHandler();
+    const runnerHandler = new MockRunnerHandler();
+    backendHandler.FollowPlayerGames.mockImplementation((call) => {
       call.emit('error', { code: grpc.status.ABORTED, message: 'expected error' });
     });
-    return  createTestServerAndClient(serverHandler, async (server, endpoint) => {
-      const bot = new PlayfulBot(token, new NoopAI(), endpoint)
+    await createTestServersAndClient({ backend: backendHandler, runner: runnerHandler }, async (servers) => {
+      const bot = new PlayfulBot(token, new NoopAI(), servers.backend.endpoint)
       const promise = bot.run();
       return expect(promise).rejects.toThrow(expect.objectContaining(
         { code: grpc.status.ABORTED, details: 'expected error' }
@@ -71,12 +76,15 @@ describe('PlayfulBot', () => {
   });
 
   test('should stop the bot when an error occurs from following a specific game', async () => {
-    const serverHandler = new MockPlayfulBotHandler();
-    serverHandler.FollowGame.mockImplementation((call) => {
+    const defPromise = new DeferredPromise<{ id: string, url: string}[][]>();
+    const backendHandler = new MockBackendHandler(defPromise.promise);
+    const runnerHandler = new MockRunnerHandler();
+    runnerHandler.FollowGame.mockImplementation((call) => {
       call.emit('error', { code: grpc.status.ABORTED, message: 'expected error' });
     });
-    return  createTestServerAndClient(serverHandler, async (server, endpoint) => {
-      const bot = new PlayfulBot(token, new NoopAI(), endpoint)
+    await createTestServersAndClient({ backend: backendHandler, runner: runnerHandler }, async (servers) => {
+      defPromise.resolve([[{ url: servers.runner.endpoint, id: 'game0'}]]);
+      const bot = new PlayfulBot(token, new NoopAI(), servers.backend.endpoint)
       const promise = bot.run();
       return expect(promise).rejects.toThrow(expect.objectContaining(
         { code: grpc.status.ABORTED, details: 'expected error' }
@@ -85,12 +93,15 @@ describe('PlayfulBot', () => {
   });
 
   test('should stop the bot when an error occurs during play', async () => {
-    const serverHandler = new MockPlayfulBotHandler();
-    serverHandler.PlayGame.mockImplementation((call, callback) => {
+    const defPromise = new DeferredPromise<{ id: string, url: string}[][]>();
+    const backendHandler = new MockBackendHandler(defPromise.promise);
+    const runnerHandler = new MockRunnerHandler();
+    runnerHandler.PlayGame.mockImplementation((call, callback) => {
       callback({ code: grpc.status.ABORTED, message: 'expected error' });
     });
-    return  createTestServerAndClient(serverHandler, async (server, endpoint) => {
-      const bot = new PlayfulBot(token, new NoopAI(), endpoint)
+    await createTestServersAndClient({ backend: backendHandler, runner: runnerHandler }, async (servers) => {
+      defPromise.resolve([[{ url: servers.runner.endpoint, id: 'game0'}]]);
+      const bot = new PlayfulBot(token, new NoopAI(), servers.backend.endpoint)
       const promise = bot.run();
       return expect(promise).rejects.toThrow(expect.objectContaining(
         { code: grpc.status.ABORTED, details: 'expected error' }
@@ -99,49 +110,40 @@ describe('PlayfulBot', () => {
   });
 
   test('should forward ai actions when playing games', async () => {
-    const serverHandler = new MockPlayfulBotHandler();
-    const request = new Promise<PlayGameRequest>((resolve) => {
-      serverHandler.PlayGame.mockImplementation((call) => {
+    const defPromise = new DeferredPromise<{ id: string, url: string}[][]>();
+    const backendHandler = new MockBackendHandler(defPromise.promise);
+    const runnerHandler = new MockRunnerHandler();
+    const requestPromise = new Promise<PlayGameRequest>((resolve) => {
+      runnerHandler.PlayGame.mockImplementation((call) => {
         call.on('data', (requestParam: PlayGameRequest) => {
           resolve(requestParam);
         });
       });
     })
-    serverHandler.FollowGame.mockImplementation((call) => {
+    runnerHandler.FollowGame.mockImplementation((call) => {
       call.write({
         game: testGameInit
       });
-      request.then(() => call.end());
+      requestPromise.then(() => call.end());
     })
-    return  createTestServerAndClient(serverHandler, async (server, endpoint) => {
-      const bot = new PlayfulBot(token, new NoopAI(), endpoint)
+    await createTestServersAndClient({ backend: backendHandler, runner: runnerHandler }, async (servers) => {
+      defPromise.resolve([[{ url: servers.runner.endpoint, id: 'game0'}]]);
+      const bot = new PlayfulBot(token, new NoopAI(), servers.backend.endpoint)
       await bot.run();
-      expect(request).resolves.toMatchObject(
-        {
-          gameId: testGameInit.id,
-          data: JSON.stringify(noopData),
-        }
-      );
+      const request = await requestPromise;
+      expect(request).toMatchObject({
+        gameId: testGameInit.id,
+        data: JSON.stringify({ name: noopActionName, data: noopData }),
+      });
     });
   });
 
   test('should be able to play multiple games', async () => {
-    const serverHandler = new MockPlayfulBotHandler();
+    const defPromise = new DeferredPromise<{ id: string, url: string}[][]>();
+    const backendHandler = new MockBackendHandler(defPromise.promise);
+    const runnerHandler = new MockRunnerHandler();
     const playedGames = new Array<string>();
-    serverHandler.FollowPlayerGames.mockImplementation((call) => {
-      call.write({
-        games: ['game0'],
-      });
-      call.write({
-        games: ['game1', 'game2'],
-      });
-
-      call.write({
-        games: ['game3'],
-      });
-      call.end();
-    });
-    serverHandler.FollowGame.mockImplementation((call) => {
+    runnerHandler.FollowGame.mockImplementation((call) => {
       call.on('data', (data: FollowGameRequest) => {
         call.write({
           game: {
@@ -152,14 +154,19 @@ describe('PlayfulBot', () => {
       });
       call.on('end', () => call.end());
     });
-    serverHandler.PlayGame.mockImplementation((call, callback) => {
+    runnerHandler.PlayGame.mockImplementation((call, callback) => {
       call.on('data', (requestParam: PlayGameRequest) => {
-        playedGames.push(requestParam.gameId);
+        playedGames.push(requestParam.gameId as string);
         callback(null);
       });
     });
-    return  createTestServerAndClient(serverHandler, async (server, endpoint) => {
-      const bot = new PlayfulBot(token, new NoopAI(), endpoint)
+    await createTestServersAndClient({ backend: backendHandler, runner: runnerHandler }, async (servers) => {
+      defPromise.resolve([
+        [{ url: servers.runner.endpoint, id: 'game0'}],
+        [{ url: servers.runner.endpoint, id: 'game1'}, { url: servers.runner.endpoint, id: 'game2'}],
+        [{ url: servers.runner.endpoint, id: 'game3'}],
+      ]);
+      const bot = new PlayfulBot(token, new NoopAI(), servers.backend.endpoint)
       await bot.run();
       expect(playedGames).toHaveLength(4);
       expect(playedGames).toEqual(expect.arrayContaining(['game0', 'game1', 'game2', 'game3']));
@@ -167,11 +174,13 @@ describe('PlayfulBot', () => {
   });
 
   test('should stop following and playing game when it ends', async () => {
-    const serverHandler = new MockPlayfulBotHandler();
+    const defPromise = new DeferredPromise<{ id: string, url: string}[][]>();
+    const backendHandler = new MockBackendHandler(defPromise.promise);
+    const runnerHandler = new MockRunnerHandler();
     let followGameClosed = false;
     let playGameClosed = false;
     const played = new Promise<void>((resolve) => {
-      serverHandler.PlayGame.mockImplementation((call, callback) => {
+      runnerHandler.PlayGame.mockImplementation((call, callback) => {
         call.on('end', () => {
           callback(null, {});
         });
@@ -183,7 +192,7 @@ describe('PlayfulBot', () => {
         });
       });
     })
-    serverHandler.FollowGame.mockImplementation((call) => {
+    runnerHandler.FollowGame.mockImplementation((call) => {
       call.on('end', () => {
         call.end();
       });
@@ -206,8 +215,9 @@ describe('PlayfulBot', () => {
         });
       });
     })
-    return  createTestServerAndClient(serverHandler, async (server, endpoint) => {
-      const bot = new PlayfulBot(token, new NoopAI(), endpoint)
+    await createTestServersAndClient({ backend: backendHandler, runner: runnerHandler }, async (servers) => {
+      defPromise.resolve([[{ url: servers.runner.endpoint, id: 'game0'}]]);
+      const bot = new PlayfulBot(token, new NoopAI(), servers.backend.endpoint)
       await bot.run();
       expect(playGameClosed).toBeTruthy();
       expect(followGameClosed).toBeTruthy();
@@ -215,10 +225,12 @@ describe('PlayfulBot', () => {
   });
 
   test('should play game until the end', async () => {
-    const serverHandler = new MockPlayfulBotHandler();
+    const defPromise = new DeferredPromise<{ id: string, url: string}[][]>();
+    const backendHandler = new MockBackendHandler(defPromise.promise);
+    const runnerHandler = new MockRunnerHandler();
     const playStream = new AsyncStream<number>();
     let playCounter = 0;
-    serverHandler.PlayGame.mockImplementation((call, callback) => {
+    runnerHandler.PlayGame.mockImplementation((call, callback) => {
       call.on('end', () => {
         callback(null, {});
       });
@@ -226,7 +238,7 @@ describe('PlayfulBot', () => {
         playStream.push(playCounter++);
       });
     });
-    serverHandler.FollowGame.mockImplementation((call) => {
+    runnerHandler.FollowGame.mockImplementation((call) => {
       call.on('end', () => {
         call.end();
       });
@@ -237,7 +249,7 @@ describe('PlayfulBot', () => {
         game: testGameInit
       });
       playStream.next().then(function reactToPlay(playCount) {
-        if (playCount.value < 4) {
+        if (playCount.value !== undefined && playCount.value < 4) {
           playStream.next().then(reactToPlay);
           call.write({
             patch: {
@@ -258,27 +270,29 @@ describe('PlayfulBot', () => {
         }
       });
     })
-    return  createTestServerAndClient(serverHandler, async (server, endpoint) => {
-      const bot = new PlayfulBot(token, new NoopAI(), endpoint)
+    await createTestServersAndClient({ backend: backendHandler, runner: runnerHandler }, async (servers) => {
+      defPromise.resolve([[{ url: servers.runner.endpoint, id: 'game0'}]]);
+      const bot = new PlayfulBot(token, new NoopAI(), servers.backend.endpoint)
       await bot.run();
       expect(playCounter).toEqual(5);
     });
   });
 
   test('should play only when it is player\'s turn', async () => {
-    jest.mock('./helpers/aiFixture');
     const playedStates = new Array<GameState>();
     class AIMock extends NoopAI {
-      run = jest.fn().mockImplementation((gameState: GameState, playerNumber: number) => {
+      run = vitest.fn().mockImplementation((gameState: GameState, playerNumber: number) => {
         playedStates.push(JSON.parse(JSON.stringify(gameState)));
         return {
           name: noopActionName,
           data: noopData,
         }
-      }) as jest.MockedFunction<NoopAI['run']>;
+      }) as MockedFunction<NoopAI['run']>;
     }
-    const serverHandler = new MockPlayfulBotHandler();
-    serverHandler.FollowGame.mockImplementation((call) => {
+    const defPromise = new DeferredPromise<{ id: string, url: string}[][]>();
+    const backendHandler = new MockBackendHandler(defPromise.promise);
+    const runnerHandler = new MockRunnerHandler();
+    runnerHandler.FollowGame.mockImplementation(async (call) => {
       call.on('end', () => {
         call.end();
       });
@@ -292,6 +306,7 @@ describe('PlayfulBot', () => {
           gameState: JSON.stringify({
             end: false,
             players: [{
+              // not the player's turn
               playing: false,
             },
             {
@@ -300,11 +315,13 @@ describe('PlayfulBot', () => {
           })
         }
       });
+      await new Promise(resolve => setTimeout(resolve, 100));
       call.write({
         patch: {
           gameId: testGameInit.id,
           version: 1,
           patch: JSON.stringify([
+            // no it's player's turn
             { "op": "replace", "path": "/players/0/playing", "value": true },
             { "op": "replace", "path": "/players/1/playing", "value": false },
           ])
@@ -318,9 +335,10 @@ describe('PlayfulBot', () => {
         }
       });
     })
-    return  createTestServerAndClient(serverHandler, async (server, endpoint) => {
+    await createTestServersAndClient({ backend: backendHandler, runner: runnerHandler }, async (servers) => {
+      defPromise.resolve([[{ url: servers.runner.endpoint, id: 'game0'}]]);
       const ai = new AIMock();
-      const bot = new PlayfulBot(token, ai, endpoint)
+      const bot = new PlayfulBot(token, ai, servers.backend.endpoint)
       await bot.run();
       expect(ai.run).toHaveBeenCalledTimes(1);
       expect(playedStates).toEqual(
@@ -338,8 +356,10 @@ describe('PlayfulBot', () => {
   });
 
   test('should canceled games should be stopped', async () => {
-    const serverHandler = new MockPlayfulBotHandler();
-    serverHandler.FollowGame.mockImplementation((call) => {
+    const defPromise = new DeferredPromise<{ id: string, url: string}[][]>();
+    const backendHandler = new MockBackendHandler(defPromise.promise);
+    const runnerHandler = new MockRunnerHandler();
+    runnerHandler.FollowGame.mockImplementation((call) => {
       call.on('end', () => {
         call.end();
       });
@@ -355,9 +375,10 @@ describe('PlayfulBot', () => {
           version: 2
         }
       });
-    })
-    return  createTestServerAndClient(serverHandler, async (server, endpoint) => {
-      const bot = new PlayfulBot(token, new NoopAI(), endpoint)
+    });
+    await createTestServersAndClient({ backend: backendHandler, runner: runnerHandler }, async (servers) => {
+      defPromise.resolve([[{ url: servers.runner.endpoint, id: 'game0'}]]);
+      const bot = new PlayfulBot(token, new NoopAI(), servers.backend.endpoint)
       await bot.run();
       // The game is stopped and the "run" promise ends.
     });
