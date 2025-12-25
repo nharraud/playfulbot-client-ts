@@ -8,11 +8,13 @@ import type { PlayfulBotClient } from './grpc/types/playfulbot_backend/v0/Playfu
 import type { FollowGameResponse } from './grpc/types/playfulbot_runner/v0/FollowGameResponse';
 import type { FollowPlayerGamesResponse } from './grpc/types/playfulbot_backend/v0/FollowPlayerGamesResponse';
 import { GameRef } from './grpc/types/playfulbot_backend/v0/GameRef';
+import { PlayfulBotGameRunnerClient } from './grpc/types/playfulbot_runner/v0/PlayfulBotGameRunner';
 
 export class PlayfulBot<GS extends GameState> {
   readonly ai: BotAI<GS>;
   readonly token: string;
   readonly endpoint: string;
+  readonly #runnerClients = new Map<string, { games: Set<string>, client: Promise<PlayfulBotGameRunnerClient> }>();
 
   constructor(token: string, botAI: BotAI<GS>, endpoint?: string) {
     this.endpoint = endpoint || 'playfulbot.com:5000';
@@ -52,16 +54,42 @@ export class PlayfulBot<GS extends GameState> {
     })
   }
 
+  private async getRunnerClient(gameRef: GameRef) {
+    let runnerClientRef = this.#runnerClients.get(gameRef.url);
+    if (runnerClientRef) {
+      runnerClientRef.games.add(gameRef.id);
+    } else {
+      runnerClientRef = {
+        games: new Set([gameRef.id]),
+        client: createRunnerClient(gameRef.url),
+      }
+      this.#runnerClients.set(gameRef.url, runnerClientRef);
+    }
+    return await runnerClientRef.client;
+  }
+
+  private async freeRunnerClient(gameRef: GameRef) {
+    const runnerClientRef = this.#runnerClients.get(gameRef.url);
+    if (runnerClientRef) {
+      runnerClientRef.games.delete(gameRef.id);
+      if (runnerClientRef.games.size === 0) {
+        this.#runnerClients.delete(gameRef.url);
+        const client = await runnerClientRef.client;
+        client.close();
+      }
+    }
+  }
+
   private async playGame(gameRef: GameRef, client: PlayfulBotClient, authMetadata: grpc.Metadata): Promise<void> {
-    const runnerClient = await createRunnerClient(gameRef.url);
+    const runnerClient = await this.getRunnerClient(gameRef);
     return new Promise<void>((resolve, reject) => {
       const gameCall = runnerClient.FollowGame(authMetadata);
-      function endCalls() {
+      const endCalls = () => {
         gameCall.end();
         if (playCall) {
           playCall.end();
         }
-        runnerClient.close();
+        this.freeRunnerClient(gameRef);
       }
       gameCall.on('error', (error) => {
         reject(error);
