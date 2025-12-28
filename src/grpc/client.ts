@@ -1,3 +1,4 @@
+import * as fs from 'fs';
 import * as grpc from '@grpc/grpc-js';
 import * as protoLoader from '@grpc/proto-loader';
 import * as path from 'path';
@@ -21,20 +22,28 @@ type Constructor = new (...args: any) => any;
 
 function clientFactory<ProtoType extends Constructor>(Proto: ProtoType) {
   return function createClient(url: string, options: { timeout: number } = { timeout: 5000 }): Promise<InstanceType<ProtoType>> {
+    console.log(`Playfulbot client in creation for url ${url}`);
     // Note that we could add the token to call credentials with "createFromMetadataGenerator". However
     // for some reason it slows down requests a lot. Adding the token to each request metadata doesn't
     // have this slowing effect.
-    const channelCreds = grpc.credentials.createSsl();
+    let rootcert;
+    if (process.env.SSL_CA) {
+      rootcert = fs.readFileSync(process.env.SSL_CA);
+    }
+    const channelCreds = grpc.credentials.createSsl(rootcert);
+
     return new Promise((resolve, reject) => {
       const client = new Proto(
         url,
         channelCreds
       );
+      console.log('Playfulbot client created');
       
       const deadline = new Date();
       deadline.setMilliseconds(deadline.getMilliseconds() + options.timeout);
       client.waitForReady(deadline, (error?: Error) => {
         if (error) {
+          console.log('Playfulbot client creation failed', error);
           reject(error);
         } else {
           console.log('Connected to server.');
